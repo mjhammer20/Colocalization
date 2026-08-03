@@ -14,7 +14,7 @@ from pathlib import Path
 from http.client import IncompleteRead
 from urllib.error import HTTPError, URLError
 from xml.parsers.expat import ExpatError
-from helpers import load_input_data
+from helpers import load_input_data, normalize_chromosome
 
 # ------------------------- Helper Functions -------------------------
 
@@ -59,24 +59,6 @@ def load_expanded_ranges(fp: Path) -> dict:
         expanded_ranges = json.load(f)
 
     return expanded_ranges
-
-
-# Function to normalize chromosome representation
-def normalize_chromosome(chromosome: str) -> str:
-    """
-    Normalize chromosome representation to a standard format.
-
-    Args:
-        chromosome (str): The chromosome identifier (e.g., 'chr1', '1', 'chrX', 'X').
-
-    Returns:
-        str: Normalized chromosome representation (e.g., '1', 'X').
-    """
-
-    if chromosome.startswith('chr'):
-        return chromosome[3:]
-    
-    return chromosome
 
 
 # Function to filter DataFrame to include only rows that fall within expanded locus ranges
@@ -829,7 +811,7 @@ def main(args: argparse.Namespace):
     expanded_ranges = load_expanded_ranges(expanded_ranges_fp)
 
     # Normalize chromosome column
-    df[args.chr_col] = df[args.chr_col].astype(str).apply(normalize_chromosome)
+    df[args.chr_col] = df[args.chr_col].astype(str).map(normalize_chromosome)
 
     # Filter the DataFrame by expanded ranges
     filtered_df = filter_by_expanded_ranges(

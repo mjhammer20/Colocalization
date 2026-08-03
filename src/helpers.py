@@ -49,3 +49,20 @@ def load_input_data(
         raise Exception(f"Error loading input file {fp}: {e}")
 
     return df
+
+# Function to normalize chromosome representation
+def normalize_chromosome(chromosome: str) -> str:
+    """
+    Normalize chromosome representation to a standard format.
+
+    Args:
+        chromosome (str): The chromosome identifier (e.g., 'chr1', '1', 'chrX', 'X').
+
+    Returns:
+        str: Normalized chromosome representation (e.g., '1', 'X').
+    """
+
+    if chromosome.startswith('chr'):
+        return chromosome[3:]
+    
+    return chromosome

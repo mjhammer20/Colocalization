@@ -3,7 +3,7 @@ import argparse
 import pandas as pd
 from typing import Optional
 from pathlib import Path
-from helpers import load_input_data
+from helpers import load_input_data, normalize_chromosome
 
 # -------------------------- Helper Function Definitions -------------------------
 
@@ -131,6 +131,9 @@ class LocusRanges:
                 self.parse_snp_id()
             else:
                 raise ValueError("ERROR: Unable to define loci. Either SNP ID column must be provided or both chromosome and position columns must be present in the input file.")
+
+        # Normalize chromosome representation
+        self.df[self.chr_col] = self.df[self.chr_col].astype(str).map(normalize_chromosome)
 
         # Define the range around each SNP based on the flank size
         self.define_range()
