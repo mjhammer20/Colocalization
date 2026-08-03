@@ -14,9 +14,7 @@ from pathlib import Path
 from http.client import IncompleteRead
 from urllib.error import HTTPError, URLError
 from xml.parsers.expat import ExpatError
-
-# Initialize Entrez email (required by NCBI) for API access.
-Entrez.email = "matt@datatecnica.com"
+from helpers import load_input_data
 
 # ------------------------- Helper Functions -------------------------
 
@@ -43,55 +41,6 @@ def _numeric_series(df: pd.DataFrame, colname: Optional[str]) -> pd.Series:
     return pd.Series(ser, index=df.index)
 
 # ------------------------- Main Functions -------------------------
-
-# Function to load input data
-def load_input_data(
-        fp: Path,
-        header_lines: int
-    ) -> pd.DataFrame:
-    """
-    Load input data from a file into a pandas DataFrame.
-
-    Args:
-        fp (Path): Path to the input file.
-        header_lines (int): Number of header lines to skip.
-
-    Returns:
-        pd.DataFrame: The loaded DataFrame.
-    """
-
-    # Check if the input file exists
-    if not fp.exists():
-        raise FileNotFoundError(f"Input file {fp} does not exist.")
-
-    try:
-        fn = fp.name.lower()
-        if fn.endswith('.csv'):
-            df = pd.read_csv(fp)
-        elif fn.endswith('.csv.gz'):
-            df = pd.read_csv(fp, compression='gzip')
-        elif fn.endswith('.tsv'):
-            df = pd.read_csv(fp, sep='\t')
-        elif fn.endswith('.tsv.gz'):
-            df = pd.read_csv(fp, sep='\t', compression='gzip')
-        elif fn.endswith('.txt'):
-            df = pd.read_table(fp, sep='\t', skiprows=header_lines)
-            if df.shape[1] == 1:
-                df = pd.read_table(fp, sep=',', skiprows=header_lines)
-        elif fn.endswith('.txt.gz'):
-            df = pd.read_table(fp, sep='\t', compression='gzip', skiprows=header_lines)
-            if df.shape[1] == 1:
-                df = pd.read_table(fp, sep=',', compression='gzip', skiprows=header_lines)
-        elif fn.endswith('.xlsx') or fn.endswith('.xls'):
-            df = pd.read_excel(fp, skiprows=header_lines) #FIXME
-        else:
-            raise ValueError(f"Unsupported file format for input file {fp}. Supported formats are: .csv, .csv.gz, .tsv, .tsv.gz, .txt, .txt.gz, .xlsx, .xls")
-
-    except Exception as e:
-        raise Exception(f"Error loading input file {fp}: {e}")
-
-    return df
-
 
 # Function to load expanded locus ranges from file
 def load_expanded_ranges(fp: Path) -> dict:
@@ -890,6 +839,9 @@ def main(args: argparse.Namespace):
         expanded_ranges=expanded_ranges
     )
 
+    # Initialize Entrez email (required by NCBI) for API access.
+    Entrez.email = args.entrez_email
+
     # Annotate summary statistics
     allele_match_col = 'Allele_Match'
     variant_id_col = 'Variant_ID'
@@ -951,7 +903,7 @@ def main(args: argparse.Namespace):
     )
 
 
-# ------------------------- Run Pipeline from CLI-------------------------
+# ------------------------- Command Line Interface -------------------------
 
 if __name__ == "__main__":
     # Set up argument parser
@@ -963,6 +915,7 @@ if __name__ == "__main__":
     parser.add_argument("--chr_col", type=str, required=True, help="Column name for chromosome information.")
     parser.add_argument("--pos_col", type=str, required=True, help="Column name for position information.")
     parser.add_argument("--rsid_col", type=str, default=None, help="Column name for rsID information (optional).")
+    parser.add_argument("--entrez_email", type=str, required=True, help="Email address for NCBI Entrez API.")
     parser.add_argument("--gene_id_col", type=str, required=True, help="Column name for gene ID information.")
     parser.add_argument("--non_effect_allele_col", type=str, required=True, help="Column name for non-effect allele information.")
     parser.add_argument("--effect_allele_col", type=str, required=True, help="Column name for effect allele information.")
