@@ -67,7 +67,7 @@ def compute_ld_for_locus(bfile: str, ld_output_dir: str, tag: str, row: pd.Serie
 
     # 1) Extract locus
     rc = _run([
-        PLINK,
+        "plink",
         "--bfile", bfile,
         "--chr", row[chr_col],
         "--from-bp", row[left_bound_col],
@@ -83,7 +83,7 @@ def compute_ld_for_locus(bfile: str, ld_output_dir: str, tag: str, row: pd.Serie
 
     # 2) Compute signed LD matrix
     ld_cmd = [
-        PLINK,
+        "plink",
         "--bfile", region,
         "--keep-allele-order",
         "--r", "square",
@@ -125,18 +125,16 @@ def main(args: argparse.Namespace):
         n = compute_ld_for_locus(args.ref_bfile, args.ld_output_dir, tag, row, args.chr_col, args.left_bound_col, args.right_bound_col, args.maf_min, args.geno_max)
 
         manifest.append({
-            "locusID": row[args.locus_id_col],
+            args.locus_id_col: row[args.locus_id_col],
             "tag": tag,
-            "chr": row[args.chr_col],
-            "left_500kb": row[args.left_bound_col],
-            "right_500kb": row[args.right_bound_col],
+            args.chr_col: row[args.chr_col],
+            args.left_bound_col: row[args.left_bound_col],
+            args.right_bound_col: row[args.right_bound_col],
             "ld_panel": args.ld_panel,
             "ld_bfile": args.ref_bfile,
 
-            "gwas_ld": f"{tag}.gwas.ld",
-            "gwas_bim": f"{tag}.gwas.bim",
-            "eqtl_ld": f"{tag}.gwas.ld",
-            "eqtl_bim": f"{tag}.gwas.bim",
+            args.ld_file_col: f"{tag}.gwas.ld",
+            args.bim_file_col: f"{tag}.gwas.bim",
 
             "n_gwas": n,
             "n_eqtl": n,
@@ -145,7 +143,7 @@ def main(args: argparse.Namespace):
         })
 
     man = pd.DataFrame(manifest)
-    man_path = Path(args.ld_output_dir) / "ld_manifest.tsv"
+    man_path = Path(args.ld_output_dir) / args.ld_manifest
     man.to_csv(man_path, sep="\t", index=False)
 
     print(f"\nWrote LD manifest: {man_path}")
@@ -160,6 +158,7 @@ if __name__ == "__main__":
     parser.add_argument("--ref_bfile", required=True, help="Path to the reference PLINK binary fileset (prefix).")
     parser.add_argument("--ld_panel", required=True, help="Name of the LD reference panel (e.g., 1000G_EUR).")
     parser.add_argument("--ld_output_dir", required=True, help="Directory to write output LD matrices and manifest.")
+    parser.add_argument("--ld_manifest", default="ld_manifest.tsv", help="Name of the LD manifest file to be created (default: ld_manifest.tsv).")
     parser.add_argument("--chr_col", required=True, help="Column name for chromosome in the loci file.")
     parser.add_argument("--left_bound_col", required=True, help="Column name for left boundary in the loci file.")
     parser.add_argument("--right_bound_col", required=True, help="Column name for right boundary in the loci file.")
@@ -168,7 +167,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Constants for PLINK filtering
-    PLINK = "plink"  # Assumes plink is in PATH; adjust if necessary
-    
     main(args)
