@@ -699,7 +699,7 @@ def transform_sum_stats(
         se_col: str,
         maf_col: str,
         n_col: str,
-        cell_type_col: str
+        tissue_col: str
     ) -> pd.DataFrame:
     """
     Transform the coloc results DataFrame by selecting relevant columns and renaming them.
@@ -719,28 +719,28 @@ def transform_sum_stats(
         se_col (str): The name of the column containing standard error information.
         maf_col (str): The name of the column containing minor allele frequency information.
         n_col (str): The name of the column containing sample size information.
-        cell_type_col (str): The name of the column containing cell type information.
+        tissue_col (str): The name of the column containing tissue information.
 
     Returns:
         pd.DataFrame: The transformed DataFrame with selected and renamed columns.
 
     """
 
-    # Ensure that the cell type column exists in the DataFrame, if not, create it with default value 'NA'
-    if not cell_type_col:
-        cell_type_col = 'CELL_TYPE'
-        df[cell_type_col] = 'NA'
+    # Ensure that the tissue column exists in the DataFrame, if not, create it with default value 'NA'
+    if not tissue_col:
+        tissue_col = 'TISSUE'
+        df[tissue_col] = 'NA'
     
     # Select relevant columns
     transformed_df = pd.DataFrame(df[[chr_col, pos_col, variant_id_col, rsid_col,
                          gene_id_col, non_effect_allele_col, effect_allele_col,
                          p_col, beta_col, var_beta_col, sdY_col, se_col, maf_col,
-                         n_col, cell_type_col]])
+                         n_col, tissue_col]])
 
     # Rename columns
     transformed_df.columns = ['CHR', 'BP', 'VARIANT_ID', 'RSID', 
                               'GENE_ID', 'NON_EFFECT_ALLELE', 'EFFECT_ALLELE', 
-                              'P', 'BETA', 'VAR_BETA', 'SDY', 'SE', 'MAF', 'N', 'CELL_TYPE']
+                              'P', 'BETA', 'VAR_BETA', 'SDY', 'SE', 'MAF', 'N', 'TISSUE']
 
     return transformed_df
 
@@ -872,7 +872,7 @@ def main(args: argparse.Namespace):
         maf_col=args.maf_col or 'MAF',
         var_beta_col=args.var_beta_col or 'VARBETA',
         sdY_col=args.sdY_col or 'SDY',
-        cell_type_col=args.cell_type_col
+        tissue_col=args.tissue_col
     )
 
     # Save the output files
@@ -910,7 +910,7 @@ if __name__ == "__main__":
     parser.add_argument("--mac_col", type=str, default=None, help="Column name for minor allele count information (optional).")
     parser.add_argument("--var_beta_col", type=str, default=None, help="Column name for variance of beta information (optional).")
     parser.add_argument("--sdY_col", type=str, default=None, help="Column name for standard deviation of Y information (optional).")
-    parser.add_argument("--cell_type_col", type=str, default=None, help="Column name for region information (optional).")
+    parser.add_argument("--tissue_col", type=str, default=None, help="Column name for tissue information (optional).")
 
     # Parse arguments
     args = parser.parse_args()

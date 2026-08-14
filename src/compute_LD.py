@@ -136,10 +136,9 @@ def main(args: argparse.Namespace):
             args.ld_file_col: f"{tag}.gwas.ld",
             args.bim_file_col: f"{tag}.gwas.bim",
 
-            "n_gwas": n,
-            "n_eqtl": n,
+            "n": n,
             "same_panel": True,
-            "note": "Same EUR LD reference used for GWAS and GTEx/eQTL because GTEx genotypes are unavailable."
+            "note": "Same EUR LD reference used for GWAS and QTL."
         })
 
     man = pd.DataFrame(manifest)

@@ -44,14 +44,14 @@ def _standardize_df(df: pd.DataFrame, standard_cols: list[str], standard_col_nam
 # -------------------------- Class Definition -------------------------
 
 class LocusRanges:
-    def __init__(self, input_fp: Path, header_lines: int, chr_col: Optional[str], pos_col: Optional[str], snp_id_col: Optional[str], flank_size: int = 500000):
-        self.df = load_input_data(input_fp, header_lines=header_lines)
-        self.snp_id_col = snp_id_col
-        self.chr_col = chr_col or "CHR"
-        self.pos_col = pos_col or "BP"
-        self.flank_size = flank_size
-        self.left_bound_col = f"LEFT_{flank_size // 1000}KB"
-        self.right_bound_col = f"RIGHT_{flank_size // 1000}KB"
+    def __init__(self, args: argparse.Namespace) -> None:
+        self.df = load_input_data(fp=Path(args.input_file), header_lines=args.header_lines)
+        self.snp_id_col = args.snp_id_col
+        self.chr_col = args.chr_col or "CHR"
+        self.pos_col = args.pos_col or "BP"
+        self.flank_size = args.flank_size or 500000
+        self.left_bound_col = f"LEFT_{self.flank_size // 1000}KB"
+        self.right_bound_col = f"RIGHT_{self.flank_size // 1000}KB"
         self.locus_id_col = "LOCUS_ID"
         self.merged_df = pd.DataFrame()
         self.n_snps_col = "N_SNPS"
@@ -166,7 +166,7 @@ def main(args: argparse.Namespace) -> None:
     """
 
     # Create a LocusRanges object
-    locus_definer = LocusRanges(input_fp = Path(args.input_file), header_lines=args.header_lines, chr_col = args.chr_col, pos_col = args.pos_col, snp_id_col = args.snp_id_col, flank_size = args.flank_size)
+    locus_definer = LocusRanges(args)
 
     # Define loci
     full_df, merged_df = locus_definer.define_locus_ranges()
