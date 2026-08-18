@@ -162,22 +162,6 @@ def extract_maf_from_record(record: dict) -> float:
     return float(freqs[0])
 
 
-def load_expanded_ranges(fp: Path) -> dict:
-    """
-    Load expanded locus ranges from a JSON file into a dictionary.
-
-    Args:
-        fp (Path): Path to the JSON file containing expanded ranges.
-
-    Returns:
-        dict: A dictionary with chromosome as keys and a list of [start, end] ranges as values.
-
-    """
-    with open(fp, 'r') as f:
-        expanded_ranges = json.load(f)
-    return expanded_ranges
-
-
 # ------------------------- Class Definition -------------------------
 
 class SumStatsTransformer:
@@ -187,142 +171,86 @@ class SumStatsTransformer:
     Column name arguments provided at construction are stored as instance variables
     and reused across all pipeline methods, eliminating the need to pass them
     repeatedly to individual functions.
-
-    Attributes:
-        chr_col (str): Column name for chromosome.
-        pos_col (str): Column name for genomic position.
-        rsid_col (Optional[str]): Column name for rsID.
-        non_effect_allele_col (Optional[str]): Column name for the non-effect allele.
-        effect_allele_col (Optional[str]): Column name for the effect allele.
-        n_col (Optional[str]): Column name for sample size.
-        maf_col (Optional[str]): Column name for minor allele frequency.
-        mac_col (Optional[str]): Column name for minor allele count.
-        p_col (Optional[str]): Column name for p-value.
-        statistic_col (Optional[str]): Column name for test statistic.
-        se_col (Optional[str]): Column name for standard error.
-        beta_col (Optional[str]): Column name for effect size (beta).
-        var_beta_col (Optional[str]): Column name for variance of beta.
-        sdY_col (Optional[str]): Column name for standard deviation of Y.
-        gene_id_col (Optional[str]): Column name for gene ID.
-        tissue_col (Optional[str]): Column name for tissue label.
-
-    Default derived column names (set in __init__):
-        allele_match_col (str): Column name for allele match flag. Default: "Allele_Match".
-        variant_id_col (str): Column name for variant ID. Default: "Variant_ID".
-        dbSNP_ref_col (str): Column name for dbSNP reference allele. Default: "ref_dbSNP".
-        dbSNP_alt_col (str): Column name for dbSNP alternate allele. Default: "alt_dbSNP".
-        dbSNP_maf_col (str): Column name for dbSNP MAF. Default: "MAF".
-        default_rsid_col (str): Fallback rsID column name. Default: "rsID".
-        default_n_col (str): Fallback N column name. Default: "N".
-        default_p_col (str): Fallback p-value column name. Default: "P".
-        default_se_col (str): Fallback SE column name. Default: "SE".
-        default_beta_col (str): Fallback beta column name. Default: "BETA".
-        default_var_beta_col (str): Fallback var(beta) column name. Default: "VARBETA".
-        default_sdY_col (str): Fallback SDY column name. Default: "SDY".
-        default_statistic_col (str): Fallback statistic column name. Default: "STATISTIC".
-        default_tissue_col (str): Fallback tissue column name. Default: "TISSUE".
-        default_maf_col (str): Fallback MAF column name. Default: "MAF".
-        default_ref_col (str): Fallback reference allele column name. Default: "ref_dbSNP".
-        default_alt_col (str): Fallback alternate allele column name. Default: "alt_dbSNP".
-
     """
 
-    def __init__(
-        self,
-        chr_col: str,
-        pos_col: str,
-        rsid_col: Optional[str] = None,
-        non_effect_allele_col: Optional[str] = None,
-        effect_allele_col: Optional[str] = None,
-        n_col: Optional[str] = None,
-        maf_col: Optional[str] = None,
-        mac_col: Optional[str] = None,
-        p_col: Optional[str] = None,
-        statistic_col: Optional[str] = None,
-        se_col: Optional[str] = None,
-        beta_col: Optional[str] = None,
-        var_beta_col: Optional[str] = None,
-        sdY_col: Optional[str] = None,
-        gene_id_col: Optional[str] = None,
-        tissue_col: Optional[str] = None
-    ):
-        # User-supplied column names
-        self.chr_col               = chr_col
-        self.pos_col               = pos_col
-        self.rsid_col              = rsid_col
-        self.non_effect_allele_col = non_effect_allele_col
-        self.effect_allele_col     = effect_allele_col
-        self.n_col                 = n_col
-        self.maf_col               = maf_col
-        self.mac_col               = mac_col
-        self.p_col                 = p_col
-        self.statistic_col         = statistic_col
-        self.se_col                = se_col
-        self.beta_col              = beta_col
-        self.var_beta_col          = var_beta_col
-        self.sdY_col               = sdY_col
-        self.gene_id_col           = gene_id_col
-        self.tissue_col            = tissue_col
+    def __init__(self, args: argparse.Namespace):
+        self.output_dir = Path(args.output_dir)
+        self.sum_stats_fp = Path(args.sum_stats_file)
+        self.ss_df = load_input_data(self.sum_stats_fp, args.header_lines)
+        print(f"Loaded input data from {self.sum_stats_fp} with shape: {self.ss_df.shape}")
+        self.loci_fp = Path(self.output_dir, args.loci_file)
+        self.loci_df = load_input_data(self.loci_fp, 0)
+        print(f"Loaded input data from {self.loci_fp} with shape: {self.loci_df.shape}")
+        self.standardized_chr_col = args.standardized_chr_col
+        self.loci_left_bound_col = args.loci_left_bound_col
+        self.loci_right_bound_col = args.loci_right_bound_col
+        self.snps_df = pd.DataFrame()
+        self.ss_chr_col = args.ss_chr_col
+        self.ss_pos_col = args.ss_pos_col
+        self.ss_rsid_col = args.ss_rsid_col
+        self.ss_non_effect_allele_col = args.ss_non_effect_allele_col
+        self.ss_effect_allele_col = args.ss_effect_allele_col
+        self.ss_n_col = args.ss_n_col
+        self.ss_maf_col = args.ss_maf_col
+        self.ss_mac_col = args.ss_mac_col
+        self.ss_p_col = args.ss_p_col
+        self.ss_statistic_col = args.ss_statistic_col
+        self.ss_se_col = args.ss_se_col
+        self.ss_beta_col = args.ss_beta_col
+        self.ss_var_beta_col = args.ss_var_beta_col
+        self.ss_sdY_col = args.ss_sdY_col
+        self.ss_gene_id_col = args.ss_gene_id_col
+        self.ss_tissue_col = args.ss_tissue_col
+        self.annotated_df = pd.DataFrame()
+        self.allele_match_col = "Allele_Match"
+        self.standardized_ref_col = args.standardized_ref_col
+        self.standardized_alt_col = args.standardized_alt_col
+        self.standardized_maf_col = args.standardized_maf_col
+        self.standardized_pos_col = args.standardized_pos_col
+        self.standardized_variant_id_col = args.standardized_variant_id_col
+        self.standardized_rsid_col = args.standardized_rsid_col
+        self.standardized_gene_id_col = args.standardized_gene_id_col
+        self.standardized_non_effect_allele_col = args.standardized_non_effect_allele_col
+        self.standardized_effect_allele_col = args.standardized_effect_allele_col
+        self.standardized_n_col = args.standardized_n_col
+        self.standardized_p_col = args.standardized_p_col
+        self.standardized_se_col = args.standardized_se_col
+        self.standardized_beta_col = args.standardized_beta_col
+        self.standardized_var_beta_col = args.standardized_var_beta_col
+        self.standardized_sdY_col = args.standardized_sdY_col
+        self.standardized_statistic_col = args.standardized_statistic_col
+        self.standardized_tissue_col = args.standardized_tissue_col
+        self.annotated_df_mismatched = pd.DataFrame()
+        
 
-        # Derived / default column names
-        self.allele_match_col    = "Allele_Match"
-        self.variant_id_col      = "Variant_ID"
-        self.dbSNP_ref_col       = "ref_dbSNP"
-        self.dbSNP_alt_col       = "alt_dbSNP"
-        self.dbSNP_maf_col       = "MAF"
-        self.default_rsid_col    = "rsID"
-        self.default_n_col       = "N"
-        self.default_p_col       = "P"
-        self.default_se_col      = "SE"
-        self.default_beta_col    = "BETA"
-        self.default_var_beta_col = "VARBETA"
-        self.default_sdY_col     = "SDY"
-        self.default_statistic_col = "STATISTIC"
-        self.default_tissue_col  = "TISSUE"
-        self.default_maf_col     = "MAF"
-        self.default_ref_col     = "ref_dbSNP"
-        self.default_alt_col     = "alt_dbSNP"
-
-    # ----------------------- Private Helper Methods -----------------------
-
-    def _filter_by_expanded_ranges(self, df: pd.DataFrame, expanded_ranges: dict) -> pd.DataFrame:
+    def filter_by_expanded_ranges(self):
         """
-        Filter a DataFrame to include only rows that fall within specified expanded locus ranges.
-
-        Args:
-            df (pd.DataFrame): The input DataFrame.
-            expanded_ranges (dict): A dictionary with chromosome as keys and a list of
-                [start, end] ranges as values.
+        Filter summary statistics to include only rows that fall within specified expanded locus ranges.
 
         Returns:
-            pd.DataFrame: The filtered DataFrame containing only rows within the specified ranges.
+            None: The DataFrame is modified in place to include only rows within the specified ranges.
 
         """
-        mask = pd.Series(False, index=df.index)
+        mask = pd.Series(False, index=self.ss_df.index)
 
-        for chrom, ranges in expanded_ranges.items():
-            idx = df.index[df[self.chr_col] == chrom]
-            pos_vals = df[self.pos_col].loc[idx]  # type: pd.Series
+        for _, row in self.loci_df.iterrows():
+            idx = self.ss_df.index[self.ss_df[self.standardized_chr_col] == row[self.standardized_chr_col]]
+            pos_vals = self.ss_df[self.ss_pos_col].loc[idx]  # type: pd.Series
             chrom_mask = pd.Series(False, index=idx)
-            for start, end in ranges:
-                chrom_mask |= pos_vals.between(start, end)
+            chrom_mask |= pos_vals.between(row[self.loci_left_bound_col], row[self.loci_right_bound_col])
             mask.loc[idx] = chrom_mask
 
-        return pd.DataFrame(df[mask])
+        self.ss_df = pd.DataFrame(self.ss_df[mask])
 
-    def _add_dbSNP_info(self, df: pd.DataFrame) -> pd.DataFrame:
+    def add_dbSNP_info(self):
         """
         Query NCBI dbSNP in batches to retrieve allele information and MAF for each rsID in the index.
 
-        Args:
-            df (pd.DataFrame): The input DataFrame with rsID as the index.
-
         Returns:
-            pd.DataFrame: The input DataFrame with additional columns for reference allele,
-                alternate allele, and MAF sourced from dbSNP.
+            None: The DataFrame is modified in place to include dbSNP allele and MAF information.
 
         """
-        rsids_full = df.index.tolist()
+        rsids_full = self.snps_df.index.tolist()
         batch_size = 200
         alleles_buf = []
         mafs_buf = []
@@ -355,57 +283,43 @@ class SumStatsTransformer:
         alleles_expanded = pd.DataFrame(
             data=list(alleles),
             index=alleles.index,
-            columns=[self.dbSNP_ref_col, self.dbSNP_alt_col]
+            columns=[self.standardized_ref_col, self.standardized_alt_col]
         )
 
-        df.loc[mafs.index, self.dbSNP_maf_col] = mafs
-        df = df.join(alleles_expanded, how='left')
+        self.snps_df.loc[mafs.index, self.standardized_maf_col] = mafs
+        self.snps_df = self.ss_df.join(alleles_expanded, how='left')
 
-        return df
 
-    def _check_allele_match(self, df: pd.DataFrame) -> pd.DataFrame:
+    def check_allele_match(self):
         """
         Check whether the alleles from the summary statistics match the alleles from dbSNP.
 
-        Args:
-            df (pd.DataFrame): The input DataFrame containing allele columns from both
-                the summary statistics and dbSNP.
-
         Returns:
-            pd.DataFrame: The DataFrame with an additional allele match column indicating
-                whether the non-effect/effect alleles match the dbSNP ref/alt alleles.
+            None: The DataFrame is modified in place to include a new column indicating allele match status.
 
         """
-        df[self.allele_match_col] = np.where(
-            df[[self.dbSNP_ref_col, self.dbSNP_alt_col,
-                self.non_effect_allele_col, self.effect_allele_col]].notna().all(axis=1), #type: ignore (silences pylance warning)
-            (df[self.dbSNP_ref_col] == df[self.non_effect_allele_col]) &
-            (df[self.dbSNP_alt_col] == df[self.effect_allele_col]),
+        self.annotated_df[self.allele_match_col] = np.where(
+            self.annotated_df[[self.standardized_ref_col, self.standardized_alt_col, self.ss_non_effect_allele_col, self.ss_effect_allele_col]].notna().all(axis=1), #type: ignore (silences pylance warning)
+            (self.annotated_df[self.standardized_ref_col] == self.annotated_df[self.ss_non_effect_allele_col]) & (self.annotated_df[self.standardized_alt_col] == self.annotated_df[self.ss_effect_allele_col]),
             "NA"
         )
-        return df
 
-    def _add_variant_id(self, df: pd.DataFrame) -> pd.DataFrame:
+    def add_variant_id(self):
         """
         Create a variant ID in the format chr:bp:ref:alt for each row in the DataFrame.
 
-        Args:
-            df (pd.DataFrame): The input DataFrame containing chromosome, position,
-                and allele columns.
-
         Returns:
-            pd.DataFrame: The DataFrame with an additional variant ID column.
+            None: The DataFrame is modified in place to include a new column with the variant ID.
 
         """
-        df[self.variant_id_col] = np.where(
-            df[[self.dbSNP_ref_col, self.dbSNP_alt_col]].notna().all(axis=1), #type: ignore (silences pylance warning)
-            df[self.chr_col].astype(str) + ':' + df[self.pos_col].astype(str) + ':' +
-            df[self.dbSNP_ref_col].astype(str) + ':' + df[self.dbSNP_alt_col].astype(str),
+        self.annotated_df[self.standardized_variant_id_col] = np.where(
+            self.annotated_df[[self.standardized_ref_col, self.standardized_alt_col]].notna().all(axis=1), #type: ignore (silences pylance warning)
+            self.annotated_df[self.standardized_chr_col].astype(str) + ':' + self.annotated_df[self.ss_pos_col].astype(str) + ':' +
+            self.annotated_df[self.standardized_ref_col].astype(str) + ':' + self.annotated_df[self.standardized_alt_col].astype(str),
             "NA"
         )
-        return df
 
-    def _calculate_missing_summary_statistics(self, df: pd.DataFrame) -> pd.DataFrame:
+    def calculate_missing_summary_statistics(self):
         """
         Calculate missing summary statistics (N, statistic, SE, beta, var(beta), SDY, P)
         from available columns, filling in defaults where possible.
@@ -417,268 +331,213 @@ class SumStatsTransformer:
             pd.DataFrame: The DataFrame with missing summary statistics filled in.
 
         """
-        s_n         = _numeric_series(df, self.n_col)
-        s_maf       = _numeric_series(df, self.maf_col)
-        s_mac       = _numeric_series(df, self.mac_col)
-        s_p         = _numeric_series(df, self.p_col)
-        s_statistic = _numeric_series(df, self.statistic_col)
-        s_se        = _numeric_series(df, self.se_col)
-        s_beta      = _numeric_series(df, self.beta_col)
-        s_var_beta  = _numeric_series(df, self.var_beta_col)
+        s_n = _numeric_series(self.annotated_df, self.ss_n_col)
+        s_maf = _numeric_series(self.annotated_df, self.ss_maf_col)
+        s_mac = _numeric_series(self.annotated_df, self.ss_mac_col)
+        s_p = _numeric_series(self.annotated_df, self.ss_p_col)
+        s_statistic = _numeric_series(self.annotated_df, self.ss_statistic_col)
+        s_se = _numeric_series(self.annotated_df, self.ss_se_col)
+        s_beta = _numeric_series(self.annotated_df, self.ss_beta_col)
+        s_var_beta = _numeric_series(self.annotated_df, self.ss_var_beta_col)
 
         # N
-        if self.n_col is None:
-            self.n_col = self.default_n_col
-            s_n = pd.Series(np.nan, index=df.index)
+        if self.ss_n_col is None:
+            s_n = pd.Series(np.nan, index=self.annotated_df.index)
             m = s_mac.notna() & s_maf.notna() & (s_maf != 0)
             s_n.loc[m] = (s_mac / (2 * s_maf))[m]
-            df[self.n_col] = s_n
+            self.annotated_df[self.standardized_n_col] = s_n
 
         # Statistic
-        if self.statistic_col is None:
-            self.statistic_col = self.default_statistic_col
+        if self.ss_statistic_col is None:
             s_statistic = pd.Series(np.nan, index=s_p.index)
             m = s_p.notna() & (s_p > 0) & (s_p < 1)
             s_statistic.loc[m] = (norm.ppf(1 - s_p / 2))[m]
-            df[self.statistic_col] = s_statistic
+            self.annotated_df[self.standardized_statistic_col] = s_statistic
 
         # SE
-        if not self.se_col:
-            self.se_col = self.default_se_col
-            s_se = pd.Series(np.nan, index=df.index)
+        if not self.ss_se_col:
+            s_se = pd.Series(np.nan, index=self.annotated_df.index)
             m = s_beta.notna() & s_statistic.notna() & (s_statistic != 0)
             s_se.loc[m] = (s_beta.abs() / s_statistic)[m]
             m = s_se.isna() & s_maf.notna() & s_n.notna() & (s_n > 0) & s_statistic.notna() & (s_statistic != 0)
             s_se.loc[m] = 1 / np.sqrt(2 * s_maf * (1 - s_maf) * (s_n + s_statistic**2))[m]
-            df[self.se_col] = s_se
+            self.annotated_df[self.standardized_se_col] = s_se
 
         # Beta
-        if not self.beta_col:
-            self.beta_col = self.default_beta_col
-            s_beta = pd.Series(np.nan, index=df.index)
+        if not self.ss_beta_col:
+            s_beta = pd.Series(np.nan, index=self.annotated_df.index)
             m = s_se.notna() & s_statistic.notna()
             s_beta.loc[m] = (s_statistic * s_se)[m]
-            df[self.beta_col] = s_beta
+            self.annotated_df[self.standardized_beta_col] = s_beta
 
         # var(beta)
-        if not self.var_beta_col:
-            self.var_beta_col = self.default_var_beta_col
-            s_var_beta = pd.Series(np.nan, index=df.index)
+        if not self.ss_var_beta_col:
+            s_var_beta = pd.Series(np.nan, index=self.annotated_df.index)
             m = s_se.notna() & (s_se != 0)
             s_var_beta.loc[m] = (s_se ** 2)[m]
-            df[self.var_beta_col] = s_var_beta
+            self.annotated_df[self.standardized_var_beta_col] = s_var_beta
 
         # SDY
-        if not self.sdY_col:
-            self.sdY_col = self.default_sdY_col
-            sdY = pd.Series(np.nan, index=df.index)
+        if not self.ss_sdY_col:
+            sdY = pd.Series(np.nan, index=self.annotated_df.index)
             m = s_maf.notna() & s_n.notna() & (s_n > 0)
             sdY.loc[m] = np.sqrt(s_var_beta * s_n * 2 * s_maf * (1 - s_maf))[m]
-            df[self.sdY_col] = sdY
+            self.annotated_df[self.standardized_sdY_col] = sdY
 
         # P-value
-        if not self.p_col:
-            self.p_col = self.default_p_col
-            s_p = pd.Series(np.nan, index=df.index)
+        if not self.ss_p_col:
+            s_p = pd.Series(np.nan, index=self.annotated_df.index)
             m = s_p.isna() & s_statistic.notna()
             s_p.loc[m] = 2 * norm.sf(s_statistic.abs())[m]
-            df[self.p_col] = s_p
+            self.annotated_df[self.standardized_p_col] = s_p
 
-        return df
 
-    # ----------------------- Public Pipeline Methods -----------------------
-
-    def annotate(self, df: pd.DataFrame) -> pd.DataFrame:
+    def annotate(self):
         """
         Annotate a summary statistics DataFrame with dbSNP allele information, allele
         match flags, variant IDs, and any missing derived summary statistics.
 
-        Args:
-            df (pd.DataFrame): The raw input summary statistics DataFrame.
-
         Returns:
-            pd.DataFrame: The annotated DataFrame with additional columns for rsID
-                (if not provided), dbSNP alleles, MAF, allele match status, variant ID,
-                and any imputed summary statistics.
+            None: The DataFrame is modified in place to include the new annotations.
 
         """
         # Subset to unique SNPs and fetch rsID if not provided
-        if self.rsid_col is None:
-            self.rsid_col = self.default_rsid_col
-            snps_df = df[[self.chr_col, self.pos_col]].drop_duplicates()
-            snps_df[self.rsid_col] = snps_df.apply(
-                lambda row: fetch_rsid(row[self.chr_col], row[self.pos_col]), axis=1
+        if self.ss_rsid_col is None:
+            self.snps_df = self.ss_df[[self.standardized_chr_col, self.ss_pos_col]].drop_duplicates()
+            self.snps_df[self.standardized_rsid_col] = self.snps_df.apply(
+                lambda row: fetch_rsid(row[self.standardized_chr_col], row[self.ss_pos_col]), axis=1
             )
-            snps_df = snps_df[snps_df[self.rsid_col] != 'NA']
-            snps_df.set_index(self.rsid_col, inplace=True)
+            self.snps_df = self.snps_df[self.snps_df[self.standardized_rsid_col] != 'NA']
+            self.snps_df.set_index(self.standardized_rsid_col, inplace=True)
         else:
-            snps_df = df[[self.chr_col, self.pos_col, self.rsid_col]].drop_duplicates()
-            snps_df.set_index(self.rsid_col, inplace=True)
+            self.snps_df = self.ss_df[[self.standardized_chr_col, self.ss_pos_col, self.ss_rsid_col]].drop_duplicates()
+            self.snps_df.set_index(self.ss_rsid_col, inplace=True)
 
         # Add dbSNP allele and MAF information
-        if len(snps_df) > 0:
-            snps_df = pd.DataFrame(snps_df)
-            snps_df = self._add_dbSNP_info(snps_df)
+        if len(self.snps_df) > 0:
+            self.add_dbSNP_info()
 
         # Merge dbSNP info back into the original DataFrame
-        merge_cols = [self.chr_col, self.pos_col] if self.rsid_col not in df.columns \
-            else [self.chr_col, self.pos_col, self.rsid_col]
-        annotated_df = pd.merge(df, snps_df, on=merge_cols, how='left')
+        merge_cols = [self.standardized_chr_col, self.ss_pos_col] if self.ss_rsid_col not in self.ss_df.columns \
+            else [self.standardized_chr_col, self.ss_pos_col, self.ss_rsid_col]
+        self.annotated_df = pd.merge(self.ss_df, self.snps_df, on=merge_cols, how='left')
 
         # Use dbSNP MAF if maf_col was not provided
-        if self.maf_col is None and self.dbSNP_maf_col in annotated_df.columns:
-            self.maf_col = self.dbSNP_maf_col
+        if self.ss_maf_col is None and self.standardized_maf_col in self.annotated_df.columns:
+            self.ss_maf_col = self.standardized_maf_col
 
         # Check allele match if effect/non-effect allele columns are available
-        if self.non_effect_allele_col is not None and self.effect_allele_col is not None:
-            annotated_df = self._check_allele_match(annotated_df)
+        if self.ss_non_effect_allele_col is not None and self.ss_effect_allele_col is not None:
+            self.check_allele_match()
 
         # Add variant ID
-        annotated_df = self._add_variant_id(annotated_df)
+        if self.allele_match_col in self.annotated_df.columns:
+            self.add_variant_id()
 
         # Calculate missing summary statistics
-        annotated_df = self._calculate_missing_summary_statistics(annotated_df)
+        self.calculate_missing_summary_statistics()
 
-        return annotated_df
 
-    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+    def transform(self):
         """
-        Transform an annotated DataFrame into the standardized column layout expected
+        Transform the annotated DataFrame into the standardized column layout expected
         by downstream colocalization tools.
 
-        Args:
-            df (pd.DataFrame): The annotated summary statistics DataFrame.
-
         Returns:
-            pd.DataFrame: The transformed DataFrame with standardized column names:
-                CHR, BP, VARIANT_ID, RSID, GENE_ID, NON_EFFECT_ALLELE, EFFECT_ALLELE,
-                P, BETA, VAR_BETA, SDY, SE, MAF, N, TISSUE.
+            None: The DataFrame is modified in place to include only the standardized columns.
 
         """
         # Ensure tissue column exists
-        if not self.tissue_col:
-            self.tissue_col = self.default_tissue_col
-            df[self.tissue_col] = 'NA'
+        if not self.ss_tissue_col:
+            self.annotated_df[self.standardized_tissue_col] = 'NA'
 
-        transformed_df = pd.DataFrame(df[[
-            self.chr_col,
-            self.pos_col,
-            self.variant_id_col,
-            self.rsid_col or self.default_rsid_col,
-            self.gene_id_col or '',
-            self.non_effect_allele_col or self.default_ref_col,
-            self.effect_allele_col or self.default_alt_col,
-            self.p_col or self.default_p_col,
-            self.beta_col or self.default_beta_col,
-            self.var_beta_col or self.default_var_beta_col,
-            self.sdY_col or self.default_sdY_col,
-            self.se_col or self.default_se_col,
-            self.maf_col or self.default_maf_col,
-            self.n_col or self.default_n_col,
-            self.tissue_col
+        self.transformed_df = pd.DataFrame(self.annotated_df[[
+            self.standardized_chr_col,
+            self.ss_pos_col,
+            self.ss_rsid_col or self.standardized_variant_id_col,
+            self.ss_rsid_col or self.standardized_rsid_col,
+            self.ss_gene_id_col,
+            self.standardized_ref_col or self.ss_non_effect_allele_col,
+            self.standardized_alt_col or self.ss_effect_allele_col,
+            self.ss_p_col or self.standardized_p_col,
+            self.ss_beta_col or self.standardized_beta_col,
+            self.ss_var_beta_col or self.standardized_var_beta_col,
+            self.ss_sdY_col or self.standardized_sdY_col,
+            self.ss_se_col or self.standardized_se_col,
+            self.ss_maf_col or self.standardized_maf_col,
+            self.ss_n_col or self.standardized_n_col,
+            self.ss_tissue_col or self.standardized_tissue_col
         ]])
 
-        transformed_df.columns = [
-            'CHR', 'BP', 'VARIANT_ID', 'RSID',
-            'GENE_ID', 'NON_EFFECT_ALLELE', 'EFFECT_ALLELE',
-            'P', 'BETA', 'VAR_BETA', 'SDY', 'SE', 'MAF', 'N', 'TISSUE'
+        self.transformed_df.columns = [
+            self.standardized_chr_col, self.standardized_pos_col, self.standardized_variant_id_col, self.standardized_rsid_col,
+            self.standardized_gene_id_col, self.standardized_non_effect_allele_col, self.standardized_effect_allele_col,
+            self.standardized_p_col, self.standardized_beta_col, self.standardized_var_beta_col, self.standardized_sdY_col,
+            self.standardized_se_col, self.standardized_maf_col, self.standardized_n_col, self.standardized_tissue_col
         ]
 
-        return transformed_df
 
-    def save_output(
-        self,
-        annotated_df: pd.DataFrame,
-        annotated_df_mismatched: pd.DataFrame,
-        transformed_df: pd.DataFrame,
-        output_dir: str,
-        input_fp: Path
-    ) -> None:
+    def save_output(self):
         """
         Save the standardized, failed-dbSNP, and mismatched-allele DataFrames to output files.
 
-        Args:
-            annotated_df (pd.DataFrame): The annotated DataFrame containing summary statistics.
-            annotated_df_mismatched (pd.DataFrame): The DataFrame containing rows with
-                mismatched alleles.
-            transformed_df (pd.DataFrame): The transformed DataFrame with standardized columns.
-            output_dir (str): The directory to save the output files.
-            input_fp (Path): The input file path used to derive output file names.
-
         Returns:
-            None
+            None: The DataFrames are saved to TSV files in the specified output directory.
 
         """
-        standardized_df = transformed_df[transformed_df['VARIANT_ID'] != 'NA']
-        annotated_df_failed_dbsnp = annotated_df[
-            annotated_df.index.isin(transformed_df.index) &
-            ~annotated_df.index.isin(standardized_df.index)
+        standardized_df = self.transformed_df[self.transformed_df[self.standardized_variant_id_col] != 'NA']
+        annotated_df_failed_dbsnp = self.annotated_df[
+            self.annotated_df.index.isin(self.transformed_df.index) &
+            ~self.annotated_df.index.isin(standardized_df.index)
         ]
 
-        if input_fp.suffix == '.gz':
-            input_file_base = Path(input_fp.stem).stem
+        if self.sum_stats_fp.suffix == '.gz':
+            input_file_base = Path(self.sum_stats_fp.stem).stem
         else:
-            input_file_base = input_fp.stem
+            input_file_base = self.sum_stats_fp.stem
 
         if len(standardized_df) > 0:
-            standardized_fp = Path(f"{output_dir}/{input_file_base}.standardized.tsv")
+            standardized_fp = Path(f"{self.output_dir}/{input_file_base}.standardized.tsv")
             standardized_df.to_csv(standardized_fp, sep='\t', index=False)
 
         if len(annotated_df_failed_dbsnp) > 0:
-            failed_dbsnp_fp = Path(f"{output_dir}/{input_file_base}.failed_dbsnp.tsv")
+            failed_dbsnp_fp = Path(f"{self.output_dir}/{input_file_base}.failed_dbsnp.tsv")
             annotated_df_failed_dbsnp.to_csv(failed_dbsnp_fp, sep='\t', index=False)
 
-        if len(annotated_df_mismatched) > 0:
-            mismatched_alleles_fp = Path(f"{output_dir}/{input_file_base}.mismatched_alleles.tsv")
-            annotated_df_mismatched.to_csv(mismatched_alleles_fp, sep='\t', index=False)
+        if len(self.annotated_df_mismatched) > 0:
+            mismatched_alleles_fp = Path(f"{self.output_dir}/{input_file_base}.mismatched_alleles.tsv")
+            self.annotated_df_mismatched.to_csv(mismatched_alleles_fp, sep='\t', index=False)
 
-    def run(
-        self,
-        df: pd.DataFrame,
-        expanded_ranges: dict,
-        output_dir: str,
-        input_fp: Path
-    ) -> None:
+    def run(self):
         """
         Execute the full pipeline: filter -> annotate -> split mismatches -> transform -> save.
 
-        Args:
-            df (pd.DataFrame): The raw input summary statistics DataFrame.
-            expanded_ranges (dict): Expanded locus ranges for filtering.
-            output_dir (str): Directory to save output files.
-            input_fp (Path): Input file path used to derive output file names.
-
         Returns:
-            None
+            None: The pipeline is executed in sequence, and output files are saved to the specified directory.
 
         """
+        # Normalize chromosome column
+        self.ss_df[self.standardized_chr_col] = self.ss_df[self.ss_chr_col].astype(str).map(normalize_chromosome)
+
         # Filter to locus regions
-        filtered_df = self._filter_by_expanded_ranges(df, expanded_ranges)
-        print(f"Filtered DataFrame shape: {filtered_df.shape}")
+        self.filter_by_expanded_ranges()
+        print(f"Filtered summary stats shape: {self.ss_df.shape}")
 
         # Annotate
-        annotated_df = self.annotate(filtered_df)
+        self.annotate()
 
         # Split out mismatched alleles
-        if self.allele_match_col in annotated_df.columns:
-            annotated_df_mismatched = pd.DataFrame(
-                annotated_df[annotated_df[self.allele_match_col] == False]
+        if self.allele_match_col in self.annotated_df.columns:
+            self.annotated_df_mismatched = pd.DataFrame(
+                self.annotated_df[self.annotated_df[self.allele_match_col] == False]
             )
-            annotated_df = annotated_df[~annotated_df.index.isin(annotated_df_mismatched.index)]
-        else:
-            annotated_df_mismatched = pd.DataFrame()
+            self.annotated_df = self.annotated_df[~self.annotated_df.index.isin(self.annotated_df_mismatched.index)]
 
         # Transform to standardized layout
-        transformed_df = self.transform(annotated_df)
+        self.transform()
 
         # Save output files
-        self.save_output(
-            annotated_df=annotated_df,
-            annotated_df_mismatched=annotated_df_mismatched,
-            transformed_df=transformed_df,
-            output_dir=output_dir,
-            input_fp=input_fp
-        )
+        self.save_output()
 
 
 # ------------------------- Full Pipeline -------------------------
@@ -692,74 +551,60 @@ def main(args: argparse.Namespace) -> None:
         args (argparse.Namespace): Parsed command-line arguments.
 
     """
-    # Load input data
-    input_fp = Path(args.input_file)
-    df = load_input_data(input_fp, args.header_lines)
-    print(f"Loaded input data from {input_fp} with shape: {df.shape}")
-
-    # Load expanded locus ranges
-    expanded_ranges = load_expanded_ranges(Path(args.expanded_ranges_file))
-
-    # Normalize chromosome column
-    df[args.chr_col] = df[args.chr_col].astype(str).map(normalize_chromosome)
 
     # Initialize Entrez email (required by NCBI) for API access
     Entrez.email = args.entrez_email
 
     # Instantiate transformer with user-supplied column names
-    transformer = SumStatsTransformer(
-        chr_col=args.chr_col,
-        pos_col=args.pos_col,
-        rsid_col=args.rsid_col,
-        non_effect_allele_col=args.non_effect_allele_col,
-        effect_allele_col=args.effect_allele_col,
-        n_col=args.n_col,
-        maf_col=args.maf_col,
-        mac_col=args.mac_col,
-        p_col=args.p_col,
-        statistic_col=args.statistic_col,
-        se_col=args.se_col,
-        beta_col=args.beta_col,
-        var_beta_col=args.var_beta_col,
-        sdY_col=args.sdY_col,
-        gene_id_col=args.gene_id_col,
-        tissue_col=args.tissue_col
-    )
+    transformer = SumStatsTransformer(args=args)
 
     # Run the full pipeline
-    transformer.run(
-        df=df,
-        expanded_ranges=expanded_ranges,
-        output_dir=args.output_dir,
-        input_fp=input_fp
-    )
+    transformer.run()
 
 
 # ------------------------- Command Line Interface -------------------------
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Transform summary statistics to standardized format.")
-    parser.add_argument("--input_file", type=str, required=True, help="Path to the input file containing summary statistics.")
-    parser.add_argument("--expanded_ranges_file", type=str, required=True, help="Path to the JSON file containing expanded locus ranges.")
+    parser.add_argument("--sum_stats_file", type=str, required=True, help="Path to the input file containing summary statistics.")
+    parser.add_argument("--loci_file", type=str, required=True, help="Name of the file containing loci information. Output from define_loci.")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory to save the output files.")
     parser.add_argument("--header_lines", type=int, default=0, help="Number of header lines to skip in the input file.")
     parser.add_argument("--entrez_email", type=str, required=True, help="Email address for NCBI Entrez API.")
-    parser.add_argument("--chr_col", type=str, required=True, help="Column name for chromosome.")
-    parser.add_argument("--pos_col", type=str, required=True, help="Column name for genomic position.")
-    parser.add_argument("--rsid_col", type=str, default=None, help="Column name for rsID (optional).")
-    parser.add_argument("--gene_id_col", type=str, required=True, help="Column name for gene ID.")
-    parser.add_argument("--non_effect_allele_col", type=str, default=None, help="Column name for non-effect allele (optional).")
-    parser.add_argument("--effect_allele_col", type=str, default=None, help="Column name for effect allele (optional).")
-    parser.add_argument("--p_col", type=str, default=None, help="Column name for p-value (optional).")
-    parser.add_argument("--beta_col", type=str, default=None, help="Column name for beta coefficient (optional).")
-    parser.add_argument("--se_col", type=str, default=None, help="Column name for standard error (optional).")
-    parser.add_argument("--n_col", type=str, default=None, help="Column name for sample size (optional).")
-    parser.add_argument("--statistic_col", type=str, default=None, help="Column name for test statistic (optional).")
-    parser.add_argument("--maf_col", type=str, default=None, help="Column name for minor allele frequency (optional).")
-    parser.add_argument("--mac_col", type=str, default=None, help="Column name for minor allele count (optional).")
-    parser.add_argument("--var_beta_col", type=str, default=None, help="Column name for variance of beta (optional).")
-    parser.add_argument("--sdY_col", type=str, default=None, help="Column name for standard deviation of Y (optional).")
-    parser.add_argument("--tissue_col", type=str, default=None, help="Column name for tissue label (optional).")
+    parser.add_argument("--ss_chr_col", type=str, required=True, help="Column name for chromosome.")
+    parser.add_argument("--ss_pos_col", type=str, required=True, help="Column name for genomic position.")
+    parser.add_argument("--ss_rsid_col", type=str, default=None, help="Column name for rsID (optional).")
+    parser.add_argument("--ss_gene_id_col", type=str, required=True, help="Column name for gene ID.")
+    parser.add_argument("--ss_non_effect_allele_col", type=str, default=None, help="Column name for non-effect allele (optional).")
+    parser.add_argument("--ss_effect_allele_col", type=str, default=None, help="Column name for effect allele (optional).")
+    parser.add_argument("--ss_p_col", type=str, default=None, help="Column name for p-value (optional).")
+    parser.add_argument("--ss_beta_col", type=str, default=None, help="Column name for beta coefficient (optional).")
+    parser.add_argument("--ss_se_col", type=str, default=None, help="Column name for standard error (optional).")
+    parser.add_argument("--ss_n_col", type=str, default=None, help="Column name for sample size (optional).")
+    parser.add_argument("--ss_statistic_col", type=str, default=None, help="Column name for test statistic (optional).")
+    parser.add_argument("--ss_maf_col", type=str, default=None, help="Column name for minor allele frequency (optional).")
+    parser.add_argument("--ss_mac_col", type=str, default=None, help="Column name for minor allele count (optional).")
+    parser.add_argument("--ss_var_beta_col", type=str, default=None, help="Column name for variance of beta (optional).")
+    parser.add_argument("--ss_sdY_col", type=str, default=None, help="Column name for standard deviation of Y (optional).")
+    parser.add_argument("--ss_tissue_col", type=str, default=None, help="Column name for tissue label (optional).")
+    parser.add_argument("--standardized_chr_col", type=str, required=True, help="Standardized column name for chromosome.")
+    parser.add_argument("--standardized_pos_col", type=str, required=True, help="Standardized column name for position.")
+    parser.add_argument("--standardized_rsid_col", type=str, required=True, help="Standardized column name for rsID.")
+    parser.add_argument("--standardized_variant_id_col", type=str, required=True, help="Standardized column name for variant ID.")
+    parser.add_argument("--standardized_gene_id_col", type=str, required=True, help="Standardized column name for gene ID.")
+    parser.add_argument("--standardized_non_effect_allele_col", type=str, required=True, help="Standardized column name for non-effect allele.")
+    parser.add_argument("--standardized_effect_allele_col", type=str, required=True, help="Standardized column name for effect allele.")
+    parser.add_argument("--standardized_p_col", type=str, required=True, help="Standardized column name for p-value.")
+    parser.add_argument("--standardized_beta_col", type=str, required=True, help="Standardized column name for beta coefficient.")
+    parser.add_argument("--standardized_se_col", type=str, required=True, help="Standardized column name for standard error.")
+    parser.add_argument("--standardized_n_col", type=str, required=True, help="Standardized column name for sample size.")
+    parser.add_argument("--standardized_statistic_col", type=str, required=True, help="Standardized column name for test statistic.")
+    parser.add_argument("--standardized_maf_col", type=str, required=True, help="Standardized column name for minor allele frequency.")
+    parser.add_argument("--standardized_var_beta_col", type=str, required=True, help="Standardized column name for variance of beta.")
+    parser.add_argument("--standardized_sdY_col", type=str, required=True, help="Standardized column name for standard deviation of Y.")
+    parser.add_argument("--standardized_tissue_col", type=str, required=True, help="Standardized column name for tissue label.")
+    parser.add_argument("--loci_left_bound_col", type=str, required=True, help="Column name for left bound of loci.")
+    parser.add_argument("--loci_right_bound_col", type=str, required=True, help="Column name for right bound of loci.")
 
     args = parser.parse_args()
     main(args)

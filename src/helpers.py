@@ -62,7 +62,41 @@ def normalize_chromosome(chromosome: str) -> str:
         str: Normalized chromosome representation (e.g., '1', 'X').
     """
 
-    if chromosome.startswith('chr'):
+    if chromosome.startswith(('chr', )):
         return chromosome[3:]
     
     return chromosome
+
+# Function to create a marker ID in the format chr:bp:ref:alt for each row in the DataFrame
+def add_variant_id(
+        df: pd.DataFrame,
+        chr_col: str,
+        pos_col: str, 
+        ref_allele_col: str,
+        alt_allele_col: str,
+        variant_id_col: str
+    ) -> pd.DataFrame:
+    """
+    Create a marker ID in the format chr:bp:ref:alt for each row in the DataFrame.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame.
+        chr_col (str): The name of the column containing chromosome information.
+        pos_col (str): The name of the column containing position information.
+        ref_allele_col (str): The name of the column containing reference allele information.
+        alt_allele_col (str): The name of the column containing alternate allele information.
+        variant_id_col (str): The name of the column to store the marker ID.
+
+    Returns:
+        pd.DataFrame: The DataFrame with an additional column for marker IDs.
+
+    """
+
+    # Create the marker ID using vectorized operations for efficiency
+    df[variant_id_col] = np.where(
+        df[[ref_allele_col, alt_allele_col]].notna().all(axis=1), #type: ignore (silences pylance warning)
+        df[chr_col].astype(str) + ':' + df[pos_col].astype(str) + ':' +
+        df[ref_allele_col].astype(str) + ':' + df[alt_allele_col].astype(str),
+        "NA")
+    
+    return df

@@ -7,27 +7,6 @@ from helpers import load_input_data, normalize_chromosome
 
 # -------------------------- Helper Function Definitions -------------------------
 
-def _add_locus_id(df: pd.DataFrame, chr_col: str, left_bound_col: str, right_bound_col: str, locus_id_col: str) -> pd.DataFrame:
-    """
-    Adds a locus ID to the DataFrame based on chromosome and boundaries.
-
-    Args:
-        df (pd.DataFrame): The DataFrame containing the data.
-        chr_col (str): The name of the column containing chromosome information.
-        left_bound_col (str): The name of the column containing left boundary information.
-        right_bound_col (str): The name of the column containing right boundary information.
-        locus_id_col (str): The name of the new column to be created for locus IDs.
-
-    Returns:
-        pd.DataFrame: The DataFrame with the new locus ID column added.
-    """
-    df[locus_id_col] = (
-        df[chr_col].astype(str) + ":" +
-        df[left_bound_col].astype(str) + "-" +
-        df[right_bound_col].astype(str)
-    )
-    return df
-
 def _standardize_df(df: pd.DataFrame, standard_cols: list[str], standard_col_names: list[str]) -> pd.DataFrame:
     """
     Standardizes the DataFrame to include only the specified columns.
@@ -39,7 +18,13 @@ def _standardize_df(df: pd.DataFrame, standard_cols: list[str], standard_col_nam
     Returns:
         pd.DataFrame: The standardized DataFrame containing only the specified columns.
     """
-    return pd.DataFrame(df[standard_cols].copy(), columns=standard_col_names)
+    # Create a copy of the DataFrame with only the standard columns
+    standard_df = df[standard_cols].copy()
+    
+    # Rename columns to standard names
+    standard_df.columns = standard_col_names
+
+    return standard_df
 
 # -------------------------- Class Definition -------------------------
 
@@ -47,16 +32,17 @@ class LocusRanges:
     def __init__(self, args: argparse.Namespace) -> None:
         self.df = load_input_data(fp=Path(args.input_file), header_lines=args.header_lines)
         self.snp_id_col = args.snp_id_col
-        self.chr_col = args.chr_col or "CHR"
-        self.pos_col = args.pos_col or "BP"
+        self.chr_col = args.chr_col
+        self.pos_col = args.pos_col
         self.flank_size = args.flank_size or 500000
         self.left_bound_col = f"LEFT_{self.flank_size // 1000}KB"
         self.right_bound_col = f"RIGHT_{self.flank_size // 1000}KB"
         self.locus_id_col = "LOCUS_ID"
         self.merged_df = pd.DataFrame()
         self.n_snps_col = "N_SNPS"
+        self.standardized_chr_col = args.standardized_chr_col
         self.standard_cols = [self.chr_col, self.left_bound_col, self.right_bound_col, self.locus_id_col]
-        self.standard_col_names = ["CHR", self.left_bound_col, self.right_bound_col, self.locus_id_col]
+        self.standard_col_names = [self.standardized_chr_col, self.left_bound_col, self.right_bound_col, self.locus_id_col]
 
     def parse_snp_id(self) -> None:
         """
@@ -101,21 +87,47 @@ class LocusRanges:
         chr_change = df_sorted[self.chr_col] != df_sorted[self.chr_col].shift(1).fillna(df_sorted[self.chr_col].iloc[0])
         group_id = (new_group | chr_change).cumsum()
 
+        # Define aggregation functions for merging
+        aggregation_functions = {
+            self.chr_col: pd.NamedAgg(column=self.chr_col, aggfunc="first"),
+            self.left_bound_col: pd.NamedAgg(column=self.left_bound_col, aggfunc="min"),
+            self.right_bound_col: pd.NamedAgg(column=self.right_bound_col, aggfunc="max"),
+            self.snp_id_col: pd.NamedAgg(column=self.snp_id_col, aggfunc=lambda x: ";".join(x.astype(str))),
+        }
+
         # Aggregate per group
         self.merged_df = df_sorted.groupby(group_id, sort=False).agg(
-            chr=(self.chr_col, "first"),
-            left_boundary=(self.left_bound_col, "min"),
-            right_boundary=(self.right_bound_col, "max"),
-            SNPs=(self.snp_id_col, lambda x: ";".join(x.astype(str)))
+            **aggregation_functions
         ).reset_index(drop=True)
 
         # Derived columns
-        self.merged_df[self.left_bound_col] = self.merged_df["left_boundary"].astype(int)
-        self.merged_df[self.right_bound_col] = self.merged_df["right_boundary"].astype(int)
-        self.merged_df[self.n_snps_col] = self.merged_df["SNPs"].str.count(";") + 1
+        self.merged_df[self.left_bound_col] = self.merged_df[self.left_bound_col].astype(int)
+        self.merged_df[self.right_bound_col] = self.merged_df[self.right_bound_col].astype(int)
+        self.merged_df[self.n_snps_col] = self.merged_df[self.snp_id_col].str.count(";") + 1
 
         # Drop SNPs column
-        self.merged_df.drop(columns=["SNPs"], inplace=True)
+        self.merged_df.drop(columns=[self.snp_id_col], inplace=True)
+
+    def add_locus_id(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Adds a locus ID to the DataFrame based on chromosome and boundaries.
+
+        Args:
+            df (pd.DataFrame): The DataFrame containing the data.
+            chr_col (str): The name of the column containing chromosome information.
+            left_bound_col (str): The name of the column containing left boundary information.
+            right_bound_col (str): The name of the column containing right boundary information.
+            locus_id_col (str): The name of the new column to be created for locus IDs.
+
+        Returns:
+            pd.DataFrame: The DataFrame with the new locus ID column added.
+        """
+        df[self.locus_id_col] = (
+            df[self.chr_col].astype(str) + ":" +
+            df[self.left_bound_col].astype(str) + "-" +
+            df[self.right_bound_col].astype(str)
+        )
+        return df
 
     def define_locus_ranges(self) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
@@ -142,8 +154,8 @@ class LocusRanges:
         self.merge_overlapping()
 
         # Add locus IDs
-        self.df = _add_locus_id(self.df, self.chr_col, self.left_bound_col, self.right_bound_col, self.locus_id_col)
-        self.merged_df = _add_locus_id(self.merged_df, self.chr_col, self.left_bound_col, self.right_bound_col, self.locus_id_col)
+        self.df = self.add_locus_id(self.df)
+        self.merged_df = self.add_locus_id(self.merged_df)
 
         # Standardize the DataFrames to include only relevant columns
         full_df = _standardize_df(self.df, self.standard_cols, self.standard_col_names)
@@ -180,13 +192,14 @@ def main(args: argparse.Namespace) -> None:
 # -------------------------- Command-Line Interface -------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Define locus ranges based on SNP identifiers and flank size.")
-    parser.add_argument("--input_file", required=True, help="Path to the input CSV file containing SNP data.")
+    parser.add_argument("--input_file", type=str, required=True, help="Path to the input CSV file containing SNP data.")
     parser.add_argument("--header_lines", type=int, default=0, help="Number of header lines to skip in the input file.")
-    parser.add_argument("--output_file_prefix", required=True, help="Prefix for the output CSV files, including the path and base name.")
-    parser.add_argument("--snp_id_col", default="SNP", help="Column name for SNP identifiers in the input DataFrame.")
-    parser.add_argument("--chr_col", default=None, help="Column name for chromosome information. If not provided, it will be extracted from SNP_ID.")
-    parser.add_argument("--pos_col", default=None, help="Column name for position information. If not provided, it will be extracted from SNP_ID.")
+    parser.add_argument("--output_file_prefix", type=str, required=True, help="Prefix for the output CSV files, including the path and base name.")
+    parser.add_argument("--snp_id_col", type=str, default="SNP", help="Column name for SNP identifiers in the input DataFrame.")
+    parser.add_argument("--chr_col", type=str, required=True, help="Column name for chromosome information. If not provided, it will be extracted from SNP_ID.")
+    parser.add_argument("--pos_col", type=str, required=True, help="Column name for position information. If not provided, it will be extracted from SNP_ID.")
     parser.add_argument("--flank_size", type=int, default=500000, help="Flank size in base pairs to define the range around each SNP.")
+    parser.add_argument("--standardized_chr_col", type=str, required=True, help="Column name for standardized chromosome information in the output DataFrame.")
 
     args = parser.parse_args()
     main(args)
