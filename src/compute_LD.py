@@ -135,8 +135,14 @@ def main(args: argparse.Namespace):
 
     """
     # Load loci from the input file
-    loci = load_input_data(args.loci_file, header_lines=args.header_lines)
+    loci = load_input_data(Path(args.loci_file), header_lines=args.header_lines)
     
+    # Create the LD output directory if it doesn't exist
+    ld_output_dir = Path(args.ld_output_dir)
+    if not ld_output_dir.exists():
+        ld_output_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Created LD output directory: {ld_output_dir}")
+
     # Initialize an empty list to hold manifest entries
     manifest = []
 
@@ -177,14 +183,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute LD matrices for loci.")
     parser.add_argument("--loci_file", required=True, help="Path to the input loci file (TSV).")
     parser.add_argument("--header_lines", type=int, default=0, help="Number of header lines to skip in the loci file.")
-    parser.add_argument("--locus_id_key", required=True, help="Column name for locus IDs in the loci file.")
+    parser.add_argument("--locus_id_key", default="LOCUS_ID", help="Column name for locus IDs in the loci file.")
     parser.add_argument("--ref_bfile", required=True, help="Path to the reference PLINK binary fileset (prefix).")
     parser.add_argument("--ld_panel", required=True, help="Name of the LD reference panel (e.g., 1000G_EUR).")
     parser.add_argument("--ld_output_dir", required=True, help="Directory to write output LD matrices and manifest.")
     parser.add_argument("--ld_manifest", default="ld_manifest.tsv", help="Name of the LD manifest file to be created (default: ld_manifest.tsv).")
-    parser.add_argument("--chr_key", required=True, help="Column name for chromosome in the loci file.")
-    parser.add_argument("--left_bound_key", required=True, help="Column name for left boundary in the loci file.")
-    parser.add_argument("--right_bound_key", required=True, help="Column name for right boundary in the loci file.")
+    parser.add_argument("--chr_key", default="CHR", help="Column name for chromosome in the loci file.")
+    parser.add_argument("--left_bound_key", default="LEFT_500KB", help="Column name for left boundary in the loci file.")
+    parser.add_argument("--right_bound_key", default="RIGHT_500KB", help="Column name for right boundary in the loci file.")
     parser.add_argument("--maf_min", type=float, default=0.01, help="Minimum minor allele frequency for filtering.")
     parser.add_argument("--geno_max", type=float, default=0.05, help="Maximum missing genotype rate for filtering.")
     parser.add_argument("--ld_file_key", default="LD", help="Column name for LD file paths in the manifest (default: ld_file).")
