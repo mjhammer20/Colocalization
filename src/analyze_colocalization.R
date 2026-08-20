@@ -15,42 +15,127 @@ suppressPackageStartupMessages({
 
 # ------------------------------ Helper Function Definitions -------------------------------
 
-# Logging function to print messages with timestamps and write to a log file
 .log <- function(...) {
-  msg <- paste0(format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z"), " | ", sprintf(...))
-  cat(msg, "\n"); write(msg, file = log_file, append = TRUE)
+    """
+    Logs a message with a timestamp to both the console and a log file.
+
+    Args:
+        ...: The message to log, which can be formatted using sprintf-style formatting.
+    
+    Returns:
+        None. The function prints the message to the console and appends it to a log file.
+
+    """
+    # Format the message with a timestamp and write it to both the console and the log file
+    msg <- paste0(format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z"), " | ", sprintf(...))
+    cat(msg, "\n"); write(msg, file = log_file, append = TRUE)
 }
 
-# Standardize chromosome labels
-.norm_chr <- function(x) paste0("chr", str_replace(toupper(as.character(x)), "^CHR", ""))
 
-# Build an orientation-independent variant key
+.norm_chr <- function(x) {
+    """
+    Standardizes chromosome labels by converting them to uppercase and ensuring they start with 'chr'.
+
+    Args:
+        x: A character vector of chromosome labels (e.g., 'chr1', 'CHRX', '2').
+    
+    Returns:
+        A character vector of standardized chromosome labels (e.g., 'chr1', 'chrX', 'chr2').
+
+    """
+    # Use string replacement to ensure all chromosome labels are in the format 'chrX'
+    paste0("chr", str_replace(toupper(as.character(x)), "^CHR", ""))
+}
+
+
 .canon_key <- function(chr, pos, a1, a2) {
-  a1 <- toupper(a1); a2 <- toupper(a2)
-  lo <- pmin(a1, a2); hi <- pmax(a1, a2)
-  paste0(.norm_chr(chr), ":", as.integer(pos), ":", lo, "_", hi)
+    """
+    Constructs a canonical key for a genetic variant based on chromosome, position, and alleles.
+    The key is orientation-independent, meaning that the order of alleles does not matter.
+
+    Args:
+        chr: Chromosome identifier (e.g., 'chr1', 'chrX').
+        pos: Position of the variant on the chromosome (integer).
+        a1: First allele (string).
+        a2: Second allele (string).
+
+    Returns:
+        A string representing the canonical key for the variant in the format 'chr:pos:allele1_allele2'
+
+    """
+    # Convert alleles to uppercase for consistency
+    a1 <- toupper(a1); a2 <- toupper(a2)
+
+    # Determine the lower and higher alleles to create an orientation-independent key
+    lo <- pmin(a1, a2); hi <- pmax(a1, a2)
+
+    # Construct the canonical key using the standardized chromosome, position, and ordered alleles
+    paste0(.norm_chr(chr), ":", as.integer(pos), ":", lo, "_", hi)
 }
 
-# Write a data frame to a file in a streaming manner (append if file exists)
+
 .stream_write <- function(df, path) {
-  if (!file.exists(path)) data.table::fwrite(df, path, sep = "\t", quote = FALSE)
-  else data.table::fwrite(df, path, sep = "\t", quote = FALSE, append = TRUE, col.names = FALSE)
+    """
+    Writes a data frame to a file in a streaming manner. If the file already exists, it appends the data frame to the existing file without writing column names.
+
+    Args:
+        df: The data frame to be written.
+        path: The file path to write the data frame to.
+
+    Returns:
+        None. The function writes the data frame to the specified file path.
+        
+    """
+    # Use data.table's fwrite function to write the data frame to the specified path
+    if (!file.exists(path)) data.table::fwrite(df, path, sep = "\t", quote = FALSE)
+    else data.table::fwrite(df, path, sep = "\t", quote = FALSE, append = TRUE, col.names = FALSE)
 }
+
 
 .credset_for_row <- function(coloc_result, row_k) {
+    """
+    Extracts the credible set size and top SNP for a specific row in the coloc result.
+
+    Args:
+        coloc_result: The result object from the coloc analysis.
+        row_k: The index of the row to extract credible set information from.
+
+    Returns:
+        A list containing:
+            - size: The size of the credible set (number of SNPs).
+            - top: The SNP with the highest posterior probability in the credible set.
+
+    """
+    # Initialize output with NA values
     out <- list(size = NA_integer_, top = NA_character_)
+
+    # Attempt to convert the coloc result to a data frame and handle any errors
     rr <- tryCatch(as.data.frame(coloc_result$results), error = function(e) NULL)
+
+    # Check if the result is valid and contains the necessary columns
     if (is.null(rr) || !nrow(rr) || !"snp" %in% names(rr)) return(out)
+
+    # Find columns that match the pattern for SNP posterior probabilities for hypothesis H4
     h4cols <- grep("^SNP\\.PP\\.H4", names(rr), value = TRUE)
+
+    # If there are no matching columns, return the output with NA values
     if (!length(h4cols)) return(out)
+
+    # Determine the appropriate column for the specified row index
     col <- if (length(h4cols) >= row_k) {
         byname <- paste0("SNP.PP.H4.row", row_k)
         if (byname %in% h4cols) byname else h4cols[row_k]
     } else h4cols[1]
+
+    # Extract the posterior probabilities for the specified column and handle any warnings
     v <- suppressWarnings(as.numeric(rr[[col]]))
     if (!any(is.finite(v))) return(out)
+    
+    # Order the posterior probabilities in decreasing order and calculate the cumulative sum to determine the credible set
     o <- order(v, decreasing = TRUE)
     credible_set <- cumsum(v[o]); w <- which(credible_set >= CRED_COVERAGE)[1]
+    
+    # If no credible set is found, set the size to the total number of SNPs
     if (is.na(w)) w <- length(o)
     out$size <- as.integer(w)
     out$top  <- as.character(rr$snp[o][1])
