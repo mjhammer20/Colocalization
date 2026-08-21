@@ -99,6 +99,29 @@ def _fetch_rsid_records(rsids: list) -> dict:
 
     return records
 
+def _extract_position_from_record(record: dict) -> int:
+    """
+    Extract the genomic position from an NCBI dbSNP record.
+    
+    Args:
+        record (dict): The NCBI dbSNP record.
+
+    Returns:
+        int: The genomic position, or NaN if not found.
+    """
+    # Extract the CHRPOS field from the record, which contains the genomic position
+    position = record.get("CHRPOS", None)
+
+    # Check if CHRPOS is present; if not, log an error and return NaN
+    if position is None:
+        print(f"Error: CHRPOS not found in record for rsID rs{record.get('@uid', 'Unknown')}")
+        return np.nan
+    
+    # Extract the position. Pre-colon part is the chromosome, post-colon part is the position.
+    position = position.split(":")[-1]  
+
+    return int(position)
+
 
 def _extract_alleles_from_record(record: dict) -> tuple:
     """
@@ -227,10 +250,11 @@ class SumStatsTransformer:
         self.ss_tissue_key = args.ss_tissue_key
         self.annotated_df = pd.DataFrame()
         self.dbSNP_rsid_key = "rsID_dbsnp"
+        self.dbSNP_pos_key = "POS_dbsnp"
         self.dbSNP_non_effect_allele_key = "A1_dbsnp"
         self.dbSNP_effect_allele_key = "A2_dbsnp"
         self.dbSNP_maf_key = "MAF_dbsnp"
-        self.allele_match_key = "Allele_Match"
+        self.dbSNP_validation_key = "Allele_Match"
         self.standardized_non_effect_allele_key = args.standardized_non_effect_allele_key
         self.standardized_effect_allele_key = args.standardized_effect_allele_key
         self.standardized_maf_key = args.standardized_maf_key
@@ -267,7 +291,7 @@ class SumStatsTransformer:
         # Iterate over each locus and update the mask for rows that fall within the specified range
         for _, row in self.loci_df.iterrows():
             idx = self.ss_df.index[self.ss_df[self.standardized_chr_key] == row[self.standardized_chr_key]]
-            pos_vals = numeric_series(self.ss_df.loc[idx], self.ss_pos_key)
+            pos_vals = numeric_series(pd.DataFrame(self.ss_df.loc[idx]), self.ss_pos_key)
             chrom_mask = pd.Series(False, index=idx)
             chrom_mask |= pos_vals.between(row[self.loci_left_bound_key], row[self.loci_right_bound_key])
             mask.loc[idx] = chrom_mask
@@ -293,6 +317,7 @@ class SumStatsTransformer:
         # Initialize buffers to store allele and MAF information for each batch
         alleles_buf = []
         mafs_buf = []
+        pos_buf = []
 
         # Loop through the rsIDs in batches and fetch allele and MAF information from dbSNP
         print(f"Fetching dbSNP information for {len(rsids_full)} rsIDs in batches of {batch_size}...")
@@ -309,6 +334,13 @@ class SumStatsTransformer:
             # Create a list of indices corresponding to the fetched records, using the '@uid' field from each record
             indices = [f"rs{record.get('@uid')}" for record in batch_records]
 
+            # Extract position information from the fetched records, store it in a pandas Series, and append it to the positions buffer
+            batch_positions = pd.Series(
+                [_extract_position_from_record(record) for record in batch_records],
+                index=indices
+            )
+            pos_buf.append(batch_positions)
+
             # Extract allele information from the fetched records, store it in a pandas Series, and append it to the alleles buffer
             batch_alleles = pd.Series(
                 [_extract_alleles_from_record(record) for record in batch_records],
@@ -323,19 +355,22 @@ class SumStatsTransformer:
             )
             mafs_buf.append(batch_mafs)
 
-            # Explicitly delete the batch records, alleles, and MAFs to free up memory
-            del batch_records, batch_alleles, batch_mafs
+            # Explicitly delete the batch records, positions, alleles, and MAFs to free up memory
+            del batch_records, batch_positions, batch_alleles, batch_mafs
             gc.collect()
 
         # Concatenate the allele and MAF buffers into single Series for alleles and MAFs
+        positions = pd.concat(pos_buf)
         alleles = pd.concat(alleles_buf)
         mafs = pd.concat([s for s in mafs_buf if not s.empty])
 
         # Deduplicate by index (rsID) keeping first occurrence
+        positions = positions[~positions.index.duplicated(keep="first")]
         mafs = mafs[~mafs.index.duplicated(keep="first")]
         alleles = alleles[~alleles.index.duplicated(keep="first")]
 
         # Filter to only rsIDs present in snps_df to avoid index alignment issues
+        positions = positions[positions.index.isin(self.snps_df.index)]
         mafs = mafs[mafs.index.isin(self.snps_df.index)]
         alleles = alleles[alleles.index.isin(self.snps_df.index)]
 
@@ -347,11 +382,12 @@ class SumStatsTransformer:
         )
 
         # Update the summary statistics DataFrame with the fetched MAFs and join it with the expanded alleles DataFrame
+        self.snps_df.loc[positions.index, self.dbSNP_pos_key] = positions
         self.snps_df.loc[mafs.index, self.dbSNP_maf_key] = mafs
         self.snps_df = self.snps_df.join(alleles_expanded, how="left")
 
 
-    def check_allele_match(self):
+    def validate_dbSNP(self):
         """
         Check whether the alleles from the summary statistics match the alleles from dbSNP.
 
@@ -359,18 +395,35 @@ class SumStatsTransformer:
             None: The DataFrame is modified in place to include a new column indicating allele match status.
 
         """
-        # Check if both non-effect and effect allele columns are provided in the summary statistics DataFrame
-        if self.ss_non_effect_allele_key is not None and self.ss_effect_allele_key is not None:
-            # Create a new column in the DataFrame to indicate whether the alleles match between the summary statistics and dbSNP
-            self.annotated_df[self.allele_match_key] = np.where(
-                self.annotated_df[[self.dbSNP_non_effect_allele_key, self.dbSNP_effect_allele_key, self.ss_non_effect_allele_key, self.ss_effect_allele_key]].notna().all(axis=1), #type: ignore (silences pylance warning)
-                ((self.annotated_df[self.dbSNP_non_effect_allele_key] == self.annotated_df[self.ss_non_effect_allele_key]) & (self.annotated_df[self.dbSNP_effect_allele_key] == self.annotated_df[self.ss_effect_allele_key])).astype(str).replace({"True": "Match", "False": "Mismatch"}),
-                "Failed dbSNP lookup"
-            )
+        # Check if the dbSNP position column and summary statistics position column are present in the annotated DataFrame
+        dbsnp_pos_present = self.annotated_df[[self.dbSNP_pos_key]].notna().all(axis=1) #type: ignore
+        ss_pos_present = self.annotated_df[[self.ss_pos_key]].notna().all(axis=1) #type: ignore
 
-        # If allele columns are not provided in the summary statistics, set the allele match column to indicate that no allele columns were provided
-        else:
-            self.annotated_df[self.allele_match_key] = "No allele columns provided"
+        # Check if the dbSNP allele columns and summary statistics allele columns are present in the annotated DataFrame
+        dbsnp_alleles_present = self.annotated_df[[self.dbSNP_non_effect_allele_key, self.dbSNP_effect_allele_key]].notna().all(axis=1) #type: ignore
+        ss_alleles_present = self.annotated_df[[self.ss_non_effect_allele_key, self.ss_effect_allele_key]].notna().all(axis=1) #type: ignore
+
+        # Create a new column in the DataFrame to validate summary statistics against dbSNP
+        if self.ss_pos_key is not None and self.ss_non_effect_allele_key is not None and self.ss_effect_allele_key is not None:
+            self.annotated_df[self.dbSNP_validation_key] = np.where(
+                ~dbsnp_pos_present & ~dbsnp_alleles_present,
+                "Failed dbSNP lookup",
+                np.where(
+                    dbsnp_pos_present & ss_pos_present & dbsnp_alleles_present & ss_alleles_present,
+                    np.where(
+                        (self.annotated_df[self.dbSNP_pos_key] == self.annotated_df[self.ss_pos_key]) &
+                        (self.annotated_df[self.dbSNP_non_effect_allele_key] == self.annotated_df[self.ss_non_effect_allele_key]) &
+                        (self.annotated_df[self.dbSNP_effect_allele_key] == self.annotated_df[self.ss_effect_allele_key]),
+                        "Validated",
+                        np.where(
+                            self.annotated_df[self.dbSNP_pos_key] != self.annotated_df[self.ss_pos_key],
+                            "Position Mismatch",
+                            "Allele Mismatch"
+                        )
+                    ),
+                    "Incomplete summary statistics columns for validation"
+                )
+            )
 
     def add_variant_id(self):
         """
@@ -384,16 +437,30 @@ class SumStatsTransformer:
         dbsnp_alleles_present = self.annotated_df[[self.dbSNP_non_effect_allele_key, self.dbSNP_effect_allele_key]].notna().all(axis=1) #type: ignore
         ss_alleles_present = self.annotated_df[[self.ss_non_effect_allele_key, self.ss_effect_allele_key]].notna().all(axis=1) #type: ignore
 
+        # Check if dbSNP position and summary statistics position are present for each row in the DataFrame
+        dbsnp_pos_present = self.annotated_df[self.dbSNP_pos_key].notna().all(axis=1) #type: ignore
+        ss_pos_present = self.annotated_df[self.ss_pos_key].notna().all(axis=1) #type: ignore
+
         # Create a new column in the DataFrame to store the variant ID, which is constructed from the chromosome, position, non-effect allele, and effect allele. Use dbSNP alleles if available, otherwise use the alleles from the summary statistics if available or "NA".
         self.annotated_df[self.standardized_variant_id_key] = np.where(
-            ~dbsnp_alleles_present & ~ss_alleles_present,
+            ~dbsnp_alleles_present & ~ss_alleles_present & ~dbsnp_pos_present & ~ss_pos_present,
             "NA",
             np.where(
-                dbsnp_alleles_present,
-                self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.ss_pos_key].astype(str) + ":" +
+                dbsnp_alleles_present & dbsnp_pos_present,
+                self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.dbSNP_pos_key].astype(str) + ":" +
                 self.annotated_df[self.dbSNP_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.dbSNP_effect_allele_key].astype(str),
-                self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.ss_pos_key].astype(str) + ":" +
-                self.annotated_df[self.ss_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.ss_effect_allele_key].astype(str)
+                np.where(
+                    dbsnp_pos_present,
+                    self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.dbSNP_pos_key].astype(str) + ":" +
+                    self.annotated_df[self.ss_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.ss_effect_allele_key].astype(str),
+                    np.where(
+                        dbsnp_alleles_present,
+                        self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.ss_pos_key].astype(str) + ":" +
+                        self.annotated_df[self.dbSNP_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.dbSNP_effect_allele_key].astype(str),
+                        self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.ss_pos_key].astype(str) + ":" +
+                        self.annotated_df[self.ss_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.ss_effect_allele_key].astype(str)
+                    )
+                )
             )
         )
 
@@ -506,7 +573,7 @@ class SumStatsTransformer:
             self.ss_maf_key = self.dbSNP_maf_key
 
         # Check allele match if effect/non-effect allele columns are available
-        self.check_allele_match()
+        self.validate_dbSNP()
 
         # Add variant ID 
         self.add_variant_id()
@@ -535,7 +602,7 @@ class SumStatsTransformer:
         # Select columns to match the standardized layout
         self.transformed_df = pd.DataFrame(self.annotated_df[[
             self.standardized_chr_key,
-            self.ss_pos_key,
+            self.dbSNP_pos_key or self.ss_pos_key,
             self.standardized_variant_id_key,
             self.ss_rsid_key or self.dbSNP_rsid_key,
             self.ss_gene_id_key,
@@ -549,7 +616,7 @@ class SumStatsTransformer:
             self.ss_maf_key or self.dbSNP_maf_key,
             self.ss_n_key or self.standardized_n_key,
             self.ss_tissue_key or self.standardized_tissue_key,
-            self.allele_match_key
+            self.dbSNP_validation_key
         ]])
 
         # Rename columns to standardized names
@@ -557,7 +624,7 @@ class SumStatsTransformer:
             self.standardized_chr_key, self.standardized_pos_key, self.standardized_variant_id_key, self.standardized_rsid_key,
             self.standardized_gene_id_key, self.standardized_non_effect_allele_key, self.standardized_effect_allele_key,
             self.standardized_p_key, self.standardized_beta_key, self.standardized_var_beta_key, self.standardized_sdy_key,
-            self.standardized_se_key, self.standardized_maf_key, self.standardized_n_key, self.standardized_tissue_key, self.allele_match_key
+            self.standardized_se_key, self.standardized_maf_key, self.standardized_n_key, self.standardized_tissue_key, self.dbSNP_validation_key
         ]
 
 
@@ -572,17 +639,17 @@ class SumStatsTransformer:
         # Filter out rows with "NA" in the standardized variant ID column for the standardized output
         print(f"Number of SNPs that were unable to be standardized: {len(self.transformed_df[self.transformed_df[self.standardized_variant_id_key] == 'NA'])}")
         standardized_df = self.transformed_df[self.transformed_df[self.standardized_variant_id_key] != "NA"]
-        print(f"Number of SNPs validated against dbSNP: {len(standardized_df[standardized_df[self.allele_match_key] == 'Match'])}")
+        print(f"Number of SNPs validated against dbSNP: {len(standardized_df[standardized_df[self.dbSNP_validation_key] == 'Validated'])}")
 
         # Filter out rows that failed dbSNP lookup for the failed dbSNP output
         annotated_df_failed_dbsnp = self.annotated_df[
             self.annotated_df.index.isin(self.transformed_df.index) &
-            self.annotated_df.index.isin(standardized_df[standardized_df[self.allele_match_key] == "Failed dbSNP lookup"].index)
+            self.annotated_df.index.isin(standardized_df[standardized_df[self.dbSNP_validation_key] == "Failed dbSNP lookup"].index)
         ]
         print(f"Number of SNPs that failed dbSNP lookup: {len(annotated_df_failed_dbsnp)}")
 
         # Filter out rows with mismatched alleles for the mismatched alleles output
-        annotated_df_mismatched = self.annotated_df[self.annotated_df[self.allele_match_key] == "Mismatch"]
+        annotated_df_mismatched = self.annotated_df[self.annotated_df[self.dbSNP_validation_key].isin(["Position Mismatch", "Allele Mismatch"])]
         print(f"Number of SNPs with mismatched alleles: {len(annotated_df_mismatched)}")
 
         # Determine the base name for the output files based on the input file name, handling .gz suffix if present
