@@ -1,6 +1,8 @@
 # Imports
 import pandas as pd
 from pathlib import Path
+from typing import Optional
+import numpy as np
 
 # Function to load input data
 def load_input_data(
@@ -100,3 +102,29 @@ def add_variant_id(
         "NA")
     
     return df
+
+def numeric_series(df: pd.DataFrame, colname: Optional[str]) -> pd.Series:
+    """
+    Convert a specified column in a DataFrame to numeric, coercing errors to NaN.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame.
+        colname (Optional[str]): The name of the column to convert.
+
+    Returns:
+        pd.Series: A pandas Series containing the converted values.
+
+    """
+    # Check if the column name is valid and exists in the DataFrame
+    if not colname or colname not in df.columns:
+        return pd.Series(np.nan, index=df.index)
+
+    # Convert the specified column to numeric, coercing errors to NaN
+    ser = pd.to_numeric(df[colname], errors="coerce")
+
+    # Return the Series, ensuring it has the same index as the DataFrame
+    if isinstance(ser, pd.Series):
+        return ser
+    
+    # If the result is not a Series (e.g., if it's a DataFrame), return a Series of NaN values
+    return pd.Series(ser, index=df.index)

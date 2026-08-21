@@ -13,37 +13,10 @@ from pathlib import Path
 from http.client import IncompleteRead
 from urllib.error import HTTPError, URLError
 from xml.parsers.expat import ExpatError
-from helpers import load_input_data, normalize_chromosome
+from helpers import load_input_data, normalize_chromosome, numeric_series
 
 
 # ------------------------- Helper Function Definitions -------------------------
-
-def _numeric_series(df: pd.DataFrame, colname: Optional[str]) -> pd.Series:
-    """
-    Convert a specified column in a DataFrame to numeric, coercing errors to NaN.
-
-    Args:
-        df (pd.DataFrame): The input DataFrame.
-        colname (Optional[str]): The name of the column to convert.
-
-    Returns:
-        pd.Series: A pandas Series containing the converted values.
-
-    """
-    # Check if the column name is valid and exists in the DataFrame
-    if not colname or colname not in df.columns:
-        return pd.Series(np.nan, index=df.index)
-
-    # Convert the specified column to numeric, coercing errors to NaN
-    ser = pd.to_numeric(df[colname], errors="coerce")
-
-    # Return the Series, ensuring it has the same index as the DataFrame
-    if isinstance(ser, pd.Series):
-        return ser
-    
-    # If the result is not a Series (e.g., if it's a DataFrame), return a Series of NaN values
-    return pd.Series(ser, index=df.index)
-
 
 @lru_cache(maxsize=65536)
 def _fetch_rsid(chromosome: str, position: int) -> str:
@@ -294,7 +267,7 @@ class SumStatsTransformer:
         # Iterate over each locus and update the mask for rows that fall within the specified range
         for _, row in self.loci_df.iterrows():
             idx = self.ss_df.index[self.ss_df[self.standardized_chr_key] == row[self.standardized_chr_key]]
-            pos_vals = _numeric_series(self.ss_df.loc[idx], self.ss_pos_key)
+            pos_vals = numeric_series(self.ss_df.loc[idx], self.ss_pos_key)
             chrom_mask = pd.Series(False, index=idx)
             chrom_mask |= pos_vals.between(row[self.loci_left_bound_key], row[self.loci_right_bound_key])
             mask.loc[idx] = chrom_mask
@@ -435,14 +408,14 @@ class SumStatsTransformer:
 
         """
         # Extract numeric series for relevant summary statistics columns
-        s_n = _numeric_series(self.annotated_df, self.ss_n_key)
-        s_maf = _numeric_series(self.annotated_df, self.ss_maf_key)
-        s_mac = _numeric_series(self.annotated_df, self.ss_mac_key)
-        s_p = _numeric_series(self.annotated_df, self.ss_p_key)
-        s_statistic = _numeric_series(self.annotated_df, self.ss_statistic_key)
-        s_se = _numeric_series(self.annotated_df, self.ss_se_key)
-        s_beta = _numeric_series(self.annotated_df, self.ss_beta_key)
-        s_var_beta = _numeric_series(self.annotated_df, self.ss_var_beta_key)
+        s_n = numeric_series(self.annotated_df, self.ss_n_key)
+        s_maf = numeric_series(self.annotated_df, self.ss_maf_key)
+        s_mac = numeric_series(self.annotated_df, self.ss_mac_key)
+        s_p = numeric_series(self.annotated_df, self.ss_p_key)
+        s_statistic = numeric_series(self.annotated_df, self.ss_statistic_key)
+        s_se = numeric_series(self.annotated_df, self.ss_se_key)
+        s_beta = numeric_series(self.annotated_df, self.ss_beta_key)
+        s_var_beta = numeric_series(self.annotated_df, self.ss_var_beta_key)
 
         # Calculate N from MAC and MAF if both are available and MAF is not zero
         if self.ss_n_key is None:

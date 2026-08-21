@@ -5,7 +5,7 @@ import numpy as np # type: ignore (silences pylance warning)
 import pandas as pd
 from pathlib import Path
 from typing import Optional
-from helpers import load_input_data
+from helpers import load_input_data, normalize_chromosome, numeric_series, add_variant_id
 
 # ------------------------- Helper Function Definitions -------------------------
 
@@ -15,15 +15,26 @@ def _set_without_na(x):
     
     Args:
         x (pd.Series or list): The input data to convert.
-
+ 
     Returns:
         set: A set containing the non-NA values from the input.
 
     """
-    # Convert the input to a pandas Series, drop NA values, and convert to a set of strings
+    # Handle the case where the input is None
     if x is None:
         return set()
-    return set(pd.Series(x).dropna().astype(str))
+    
+    # Convert the input to a pandas Series, drop NA values, and convert to a set of strings
+    s = pd.Series(x).dropna()
+
+    # Normalize numeric types to int string to avoid "int" vs "float" mismatches
+    try:
+        s = s.astype(float).astype(int).astype(str)
+
+    # Handle any remaining non-numeric types
+    except (ValueError, TypeError):
+        s = s.astype(str)
+    return set(s)
 
 def _pct(n: float, d: float) -> float:
     """
@@ -68,18 +79,18 @@ def _summarize_overlap(s1: set, s2: set) -> tuple[int, int, int, float, float]:
 
     return n_s1, n_s2, n_overlap, pct_s1_in_s2, pct_s2_in_s1
 
-def _compute_coverage_metrics(id1: set, pos1: set, allele1: set, source1: str, id2: set, pos2: set, allele2: set, source2: str) -> dict:
+def _compute_coverage_metrics(snp_1: set, pos_1: set, var_1: set, source1: str, snp_2: set, pos_2: set, var_2: set, source2: str) -> dict:
     """
     Compute pairwise coverage metrics between two sources based on SNP IDs, positions, and alleles.
 
     Args:
-        id1 (set): Set of SNP IDs from source1.
-        pos1 (set): Set of SNP positions from source1.
-        allele1 (set): Set of SNP alleles from source1.
+        snp_1 (set): Set of SNP IDs from source1.
+        pos_1 (set): Set of SNP positions from source1.
+        var_1 (set): Set of SNP alleles from source1.
         source1 (str): Name label for the first source (used in metric keys).
-        id2 (set): Set of SNP IDs from source2.
-        pos2 (set): Set of SNP positions from source2.
-        allele2 (set): Set of SNP alleles from source2.
+        snp_2 (set): Set of SNP IDs from source2.
+        pos_2 (set): Set of SNP positions from source2.
+        var_2 (set): Set of SNP alleles from source2.
         source2 (str): Name label for the second source (used in metric keys).
 
     Returns:
@@ -88,31 +99,31 @@ def _compute_coverage_metrics(id1: set, pos1: set, allele1: set, source1: str, i
 
     """
     # Compute coverage metrics for GWAS and LD based on SNP IDs
-    n_id_df1, n_id_df2, n_id_overlap, pct_df1_id_overlap_df2, pct_df2_id_overlap_df1 = _summarize_overlap(id1, id2)
+    n_snp_df1, n_snp_df2, n_snp_overlap, pct_df1_snp_overlap_df2, pct_df2_snp_overlap_df1 = _summarize_overlap(snp_1, snp_2)
     
     # Compute coverage metrics for GWAS and LD based on SNP positions
-    n_pos_df1, n_pos_df2, n_pos_overlap, pct_df1_pos_overlap_df2, pct_df2_pos_overlap_df1 = _summarize_overlap(pos1, pos2)
+    n_pos_df1, n_pos_df2, n_pos_overlap, pct_df1_pos_overlap_df2, pct_df2_pos_overlap_df1 = _summarize_overlap(pos_1, pos_2)
 
     # Compute coverage metrics for GWAS and LD based on SNP alleles
-    n_allele_df1, n_allele_df2, n_allele_overlap, pct_df1_allele_overlap_df2, pct_df2_allele_overlap_df1 = _summarize_overlap(allele1, allele2)
+    n_var_df1, n_var_df2, n_var_overlap, pct_df1_var_overlap_df2, pct_df2_var_overlap_df1 = _summarize_overlap(var_1, var_2)
 
     # Merge the coverage metrics into a single dictionary
     coverage_metrics = {
-        f"n_id_{source1}": n_id_df1,
-        f"n_id_{source2}": n_id_df2,
-        f"n_id_overlap_{source1}_{source2}": n_id_overlap,
-        f"pct_{source1}_id_overlap_{source2}": pct_df1_id_overlap_df2,
-        f"pct_{source2}_id_overlap_{source1}": pct_df2_id_overlap_df1,
+        f"n_snp_{source1}": n_snp_df1,
+        f"n_snp_{source2}": n_snp_df2,
+        f"n_snp_overlap_{source1}_{source2}": n_snp_overlap,
+        f"pct_{source1}_snp_overlap_{source2}": pct_df1_snp_overlap_df2,
+        f"pct_{source2}_snp_overlap_{source1}": pct_df2_snp_overlap_df1,
         f"n_pos_{source1}": n_pos_df1,
         f"n_pos_{source2}": n_pos_df2,
         f"n_pos_overlap_{source1}_{source2}": n_pos_overlap,
         f"pct_{source1}_pos_overlap_{source2}": pct_df1_pos_overlap_df2,
         f"pct_{source2}_pos_overlap_{source1}": pct_df2_pos_overlap_df1,
-        f"n_allele_{source1}": n_allele_df1,
-        f"n_allele_{source2}": n_allele_df2,
-        f"n_allele_overlap_{source1}_{source2}": n_allele_overlap,
-        f"pct_{source1}_allele_overlap_{source2}": pct_df1_allele_overlap_df2,
-        f"pct_{source2}_allele_overlap_{source1}": pct_df2_allele_overlap_df1
+        f"n_var_{source1}": n_var_df1,
+        f"n_var_{source2}": n_var_df2,
+        f"n_var_overlap_{source1}_{source2}": n_var_overlap,
+        f"pct_{source1}_var_overlap_{source2}": pct_df1_var_overlap_df2,
+        f"pct_{source2}_var_overlap_{source1}": pct_df2_var_overlap_df1
     }
 
     return coverage_metrics
@@ -253,38 +264,33 @@ class CoverageCheck:
         """
         self.out_ld_dir = args.out_ld_dir
         self.ld_manifest = load_input_data(Path(self.out_ld_dir, args.ld_manifest), 0)
-        self.manifest_loc_key = args.manifest_loc_key
-        self.manifest_chr_key = args.manifest_chr_key
-        self.manifest_left_bound_key = args.manifest_left_bound_key
-        self.manifest_right_bound_key = args.manifest_right_bound_key
+        self.standardized_locus_id_key = args.standardized_locus_id_key
+        self.standardized_left_bound_key = args.standardized_left_bound_key
+        self.standardized_right_bound_key = args.standardized_right_bound_key
+        self.standardized_chr_key = args.standardized_chr_key
+        self.standardized_snp_key = args.standardized_snp_key
+        self.standardized_var_key = args.standardized_var_key
+        self.standardized_pos_key = args.standardized_pos_key
+        self.standardized_non_effect_allele_key = args.standardized_non_effect_allele_key
+        self.standardized_effect_allele_key = args.standardized_effect_allele_key
+        self.standardized_p_key = args.standardized_p_key
         self.manifest_bim_key = args.manifest_bim_key
-        self.bim_chr_key = self.manifest_chr_key
-        self.bim_id_key = "snp"
         self.bim_cm_key = "cm"
-        self.bim_pos_key = "bp"
-        self.bim_a1_key = "a1"
-        self.bim_a2_key = "a2"
-        self.bim_loc_key = "loc"
-        self.bim_allele_key = "allele"
         self.bim_missing_key = "missing_bim"
         self.bim_source_path_key = "source_path"
         self.gwas = load_input_data(Path(args.gwas_fp), 0)
         self.gwas_strata_key = args.gwas_strata_key
         self.qtl = load_input_data(Path(args.qtl_fp), 0)
         self.qtl_strata_key = args.qtl_strata_key
-        self.standardized_snp_key = args.standardized_snp_key
-        self.standardized_chr_key = args.standardized_chr_key
-        self.standardized_pos_key = args.standardized_pos_key
-        self.standardized_var_key = args.standardized_var_key
-        self.standardized_p_key = args.standardized_p_key
         self.high_overlap_min = args.high_overlap_min
         self.medium_overlap_min = args.medium_overlap_min
         self.results_ld_missing_key = "ld_missing"
-        self.results_n_allele_gwas_key = "n_allele_gwas"
-        self.results_n_allele_qtl_key = "n_allele_qtl"
-        self.results_pct_gwas_allele_overlap_ld_key = "pct_gwas_allele_overlap_ld"
-        self.results_pct_qtl_allele_overlap_ld_key = "pct_qtl_allele_overlap_ld"
-        self.results_pct_gwas_allele_overlap_qtl_key = "pct_gwas_allele_overlap_qtl"
+        self.results_n_var_gwas_key = "n_var_gwas"
+        self.results_n_var_qtl_key = "n_var_qtl"
+        self.results_pct_gwas_var_overlap_ld_key = "pct_gwas_var_overlap_ld"
+        self.results_pct_qtl_var_overlap_ld_key = "pct_qtl_var_overlap_ld"
+        self.results_pct_gwas_var_overlap_qtl_key = "pct_gwas_var_overlap_qtl"
+        self.results_pct_qtl_var_overlap_gwas_key = "pct_qtl_var_overlap_gwas"
         self.results_review_priority_key = "review_priority"
         self.results_overall_overlap_class_key = "overall_overlap_class"
         self.results_review_priority_reason_key = "review_priority_reason"
@@ -310,14 +316,14 @@ class CoverageCheck:
         if not bim_path.exists():
             bim = pd.DataFrame(
                 columns=[
-                    self.bim_chr_key,
-                    self.bim_id_key,
+                    self.standardized_chr_key,
+                    self.standardized_snp_key,
                     self.bim_cm_key,
-                    self.bim_pos_key,
-                    self.bim_a1_key,
-                    self.bim_a2_key,
-                    self.bim_loc_key,
-                    self.bim_allele_key
+                    self.standardized_pos_key,
+                    self.standardized_non_effect_allele_key,
+                    self.standardized_effect_allele_key,
+                    self.standardized_locus_id_key,
+                    self.standardized_var_key
                 ]
             )
             bim.attrs[self.bim_missing_key] = True
@@ -331,12 +337,12 @@ class CoverageCheck:
                 sep=r"\s+",
                 header=None,
                 names = [
-                    self.bim_chr_key,
-                    self.bim_id_key,
+                    self.standardized_chr_key,
+                    self.standardized_snp_key,
                     self.bim_cm_key,
-                    self.bim_pos_key,
-                    self.bim_a1_key,
-                    self.bim_a2_key
+                    self.standardized_pos_key,
+                    self.standardized_non_effect_allele_key,
+                    self.standardized_effect_allele_key,
                 ]
             )
 
@@ -344,37 +350,31 @@ class CoverageCheck:
         except pd.errors.EmptyDataError:
             bim = pd.DataFrame(
                 columns=[
-                    self.bim_chr_key,
-                    self.bim_id_key,
+                    self.standardized_chr_key,
+                    self.standardized_snp_key,
                     self.bim_cm_key,
-                    self.bim_pos_key,
-                    self.bim_a1_key,    
-                    self.bim_a2_key
+                    self.standardized_pos_key,
+                    self.standardized_non_effect_allele_key,
+                    self.standardized_effect_allele_key,
+                    self.standardized_locus_id_key,
+                    self.standardized_var_key
                 ]
             )
-        
-        # If the loaded .bim DataFrame is empty, return an empty DataFrame with metadata        
-        if len(bim) == 0:
-            bim[self.bim_loc_key] = []
-            bim[self.bim_allele_key] = []
             bim.attrs[self.bim_missing_key] = True
             bim.attrs[self.bim_source_path_key] = str(bim_path)
             return bim
         
-        # Ensure the chromosome and SNP ID columns are strings, and the position column is numeric
-        bim[self.bim_chr_key] = bim[self.bim_chr_key].astype(str)
-        bim[self.bim_id_key] = bim[self.bim_id_key].astype(str)
-        bim[self.bim_pos_key] = pd.to_numeric(bim[self.bim_pos_key], errors="coerce")
+        # Normalize chromosome representation
+        bim[self.standardized_chr_key] = bim[self.standardized_chr_key].astype(str).map(normalize_chromosome)
+
+        # Ensure SNP ID column is a string
+        bim[self.standardized_snp_key] = bim[self.standardized_snp_key].astype(str)
+
+        # Ensure postion colum in numeric
+        bim[self.standardized_pos_key] = numeric_series(bim, self.standardized_pos_key)
         
-        # Create derived columns for locus and allele tuples
-        bim[self.bim_loc_key] = [
-            (c, p)
-            for c, p in zip(bim[self.bim_chr_key], bim[self.bim_pos_key])
-        ]
-        bim[self.bim_allele_key] = [
-            (c, p, a1, a2)
-            for c, p, a1, a2 in zip(bim[self.bim_chr_key], bim[self.bim_pos_key], bim[self.bim_a1_key], bim[self.bim_a2_key])
-        ]
+        # Create derived column for variant ID (chr:pos:a1:a2) using the add_variant_id helper function
+        bim = add_variant_id(bim, self.standardized_chr_key, self.standardized_pos_key, self.standardized_non_effect_allele_key, self.standardized_effect_allele_key, self.standardized_var_key)
 
         # Set metadata attributes indicating that the .bim file was successfully loaded
         bim.attrs[self.bim_missing_key] = False
@@ -396,38 +396,40 @@ class CoverageCheck:
 
         """
         # Extract chromosome and position boundaries for the locus
-        chrom = self.ld_manifest.loc[self.ld_manifest[self.manifest_loc_key] == locus_id, self.manifest_chr_key].values[0]
-        left_bound = self.ld_manifest.loc[self.ld_manifest[self.manifest_loc_key] == locus_id, self.manifest_left_bound_key].values[0]
-        right_bound = self.ld_manifest.loc[self.ld_manifest[self.manifest_loc_key] == locus_id, self.manifest_right_bound_key].values[0]
-        
+        chrom = str(self.ld_manifest.loc[self.ld_manifest[self.standardized_locus_id_key] == locus_id, self.standardized_chr_key].values[0])
+        left_bound = int(self.ld_manifest.loc[self.ld_manifest[self.standardized_locus_id_key] == locus_id, self.standardized_left_bound_key].values[0])
+        right_bound = int(self.ld_manifest.loc[self.ld_manifest[self.standardized_locus_id_key] == locus_id, self.standardized_right_bound_key].values[0])
+
+        # Ensure position columns in GWAS and QTL DataFrames are numeric for filtering
+        self.gwas[self.standardized_pos_key] = numeric_series(self.gwas, self.standardized_pos_key)
+        self.qtl[self.standardized_pos_key] = numeric_series(self.qtl, self.standardized_pos_key)
+
+        # Filter the GWAS DataFrame to include only variants within the locus boundaries
+        gwas_filtered = self.gwas[
+            (self.gwas[self.standardized_chr_key].astype(str) == chrom) &
+            (self.gwas[self.standardized_pos_key] >= left_bound) &
+            (self.gwas[self.standardized_pos_key] <= right_bound)
+        ]
+
         # Create subsets of the GWAS DataFrame based on the locus boundaries and stratification keys
         if self.gwas_strata_key:
-            gwas_subsets = {key: sub for key, sub in self.gwas.groupby(self.gwas_strata_key)[
-                (self.gwas[self.standardized_chr_key] == chrom) &
-                (self.gwas[self.standardized_pos_key] >= left_bound) &
-                (self.gwas[self.standardized_pos_key] <= right_bound)
-            ]}
+            gwas_subsets = {key: sub for key, sub in gwas_filtered.groupby(self.gwas_strata_key)}
         else:
-            gwas_subsets = {"Full": self.gwas[
-                (self.gwas[self.standardized_chr_key] == chrom) &
-                (self.gwas[self.standardized_pos_key] >= left_bound) &
-                (self.gwas[self.standardized_pos_key] <= right_bound)
-            ]}
+            gwas_subsets = {"Full": gwas_filtered}
+
+        # Filter the QTL DataFrame to include only variants within the locus boundaries
+        qtl_filtered = self.qtl[
+            (self.qtl[self.standardized_chr_key].astype(str) == chrom) &
+            (self.qtl[self.standardized_pos_key] >= left_bound) &
+            (self.qtl[self.standardized_pos_key] <= right_bound)
+        ]
 
         # Create subsets of the QTL DataFrame based on the locus boundaries and stratification keys
         if self.qtl_strata_key:
-            qtl_subsets = {key: sub for key, sub in self.qtl.groupby(self.qtl_strata_key)[
-                (self.qtl[self.standardized_chr_key] == chrom) &
-                (self.qtl[self.standardized_pos_key] >= left_bound) &
-                (self.qtl[self.standardized_pos_key] <= right_bound)
-            ]}
+            qtl_subsets = {key: sub for key, sub in qtl_filtered.groupby(self.qtl_strata_key)}
 
         else:
-            qtl_subsets = {"Bulk": self.qtl[
-                (self.qtl[self.standardized_chr_key] == chrom) &
-                (self.qtl[self.standardized_pos_key] >= left_bound) &
-                (self.qtl[self.standardized_pos_key] <= right_bound)
-            ]}
+            qtl_subsets = {"Bulk": qtl_filtered}
 
         return gwas_subsets, qtl_subsets
 
@@ -527,22 +529,22 @@ class CoverageCheck:
         for _, locus_row in self.ld_manifest.iterrows():
             
             # Extract the locus ID from the current row using the specified key
-            locus_id = locus_row[self.manifest_loc_key].values[0]
+            locus_id = locus_row[self.standardized_locus_id_key]
 
             # Load the corresponding .bim file for the locus
-            bim_path = Path(self.out_ld_dir, locus_row[self.manifest_bim_key].values[0])
+            bim_path = Path(self.out_ld_dir, locus_row[self.manifest_bim_key]) #type: ignore silences pylance warning
             bim = self.load_bim(bim_path)
 
             # Check if LD is missing based on the existence of the .bim file and its content
             ld_missing = bool(bim.attrs.get(self.bim_missing_key, False)) or len(bim) == 0
 
             # Extract SNP IDs, positions, and alleles from the .bim file if not ld_missing, otherwise set them to empty sets
-            ld_ids = _set_without_na(bim[self.bim_id_key].astype(str)) if not ld_missing else set()
-            ld_pos = _set_without_na(bim[self.bim_pos_key].astype(int)) if not ld_missing else set()
-            ld_allele = _set_without_na(bim[self.bim_allele_key].astype(str)) if not ld_missing else set()
+            ld_snp = _set_without_na(bim[self.standardized_snp_key]) if not ld_missing else set()
+            ld_pos = _set_without_na(bim[self.standardized_pos_key]) if not ld_missing else set()
+            ld_var = _set_without_na(bim[self.standardized_var_key]) if not ld_missing else set()
 
             # Extract locus specific subset of GWAS and QTL data
-            gwas_subsets, qtl_subsets = self.get_locus_subsets(locus_id)
+            gwas_subsets, qtl_subsets = self.get_locus_subsets(locus_id) #type: ignore silences pylance warning
 
             # Initialize dict to store ld coverage metrics for each stratum x locus combination
             qtl_ld_coverage_metrics = {}
@@ -557,25 +559,25 @@ class CoverageCheck:
             for key, gwas_sub in gwas_subsets.items():
                 
                 # Extract the stratum name from the key tuple
-                gwas_stratum = key[0]
+                gwas_stratum = key
 
                 # Extract lead variant information for GWAS
                 gwas_lead = self.get_lead_variant_info(gwas_sub)
 
                 # Extract SNP IDs, positions, and alleles for the GWAS subset if it exists, otherwise set them to empty sets
-                gwas_ids = _set_without_na(gwas_sub[self.standardized_snp_key]) if len(gwas_sub) else set()
+                gwas_snp= _set_without_na(gwas_sub[self.standardized_snp_key]) if len(gwas_sub) else set()
                 gwas_pos = _set_without_na(gwas_sub[self.standardized_pos_key]) if len(gwas_sub) else set()
-                gwas_allele = _set_without_na(gwas_sub[self.standardized_var_key]) if len(gwas_sub) else set()
+                gwas_var = _set_without_na(gwas_sub[self.standardized_var_key]) if len(gwas_sub) else set()
 
                 # Compute coverage metrics for GWAS stratum and LD (Will be unique for each stratum x locus combination, so no need to cache and check for existence). 
                 gwas_ld_coverage_metrics = _compute_coverage_metrics(
-                    id1 = gwas_ids,
-                    pos1 = gwas_pos,
-                    allele1 = gwas_allele,
+                    snp_1 = gwas_snp,
+                    pos_1 = gwas_pos,
+                    var_1 = gwas_var,
                     source1 = "gwas",
-                    id2 = ld_ids,
-                    pos2 = ld_pos,
-                    allele2 = ld_allele,
+                    snp_2 = ld_snp,
+                    pos_2 = ld_pos,
+                    var_2 = ld_var,
                     source2 = "ld"
                 )
 
@@ -583,42 +585,42 @@ class CoverageCheck:
                 gwas_lead_in_ld = self.evaluate_lead_overlap(
                     lead = gwas_lead,
                     lead_source = "gwas",
-                    target_ids = ld_ids,
+                    target_ids = ld_snp,
                     target_pos = ld_pos,
-                    target_allele = ld_allele,
+                    target_allele = ld_var,
                     target_source = "ld"
                 )
 
-                # Classify the overlap between GWAS and LD based on the computed coverage metrics. If LD is missing, classify as "Missing", otherwise use the classify_overlap method to determine the overlap class based on the percentage of GWAS allele overlap with LD and the number of GWAS alleles.
+                # Classify the overlap between GWAS and LD based on the computed coverage metrics. If LD is missing, classify as "Missing", otherwise use the classify_overlap method to determine the overlap class based on the percentage of GWAS variant overlap with LD and the number of GWAS variants.
                 gwas_ld_class = "Missing" if ld_missing else self.classify_overlap(
-                    value = gwas_ld_coverage_metrics[self.results_pct_gwas_allele_overlap_ld_key],
-                    n_query = gwas_ld_coverage_metrics[self.results_n_allele_gwas_key]
+                    value = gwas_ld_coverage_metrics[self.results_pct_gwas_var_overlap_ld_key],
+                    n_query = gwas_ld_coverage_metrics[self.results_n_var_gwas_key]
                 )
 
                 # Iterate over each QTL stratum and compute coverage separately
                 for key, qtl_sub in qtl_subsets.items():
 
                     # Extract the stratum name from the key tuple
-                    qtl_stratum = key[0]
+                    qtl_stratum = key
 
                     # Extract lead variant information for QTL
                     qtl_lead = self.get_lead_variant_info(qtl_sub)
 
                     # Extract SNP IDs, positions, and alleles for the QTL subset if it exists, otherwise set them to empty sets
-                    qtl_ids = _set_without_na(qtl_sub[self.standardized_snp_key]) if len(qtl_sub) else set()
+                    qtl_snp = _set_without_na(qtl_sub[self.standardized_snp_key]) if len(qtl_sub) else set()
                     qtl_pos = _set_without_na(qtl_sub[self.standardized_pos_key]) if len(qtl_sub) else set()
-                    qtl_allele = _set_without_na(qtl_sub[self.standardized_var_key]) if len(qtl_sub) else set()
+                    qtl_var = _set_without_na(qtl_sub[self.standardized_var_key]) if len(qtl_sub) else set()
 
                     # Compute coverage metrics for QTL stratum and LD. Cache the results to avoid redundant computations for the same stratum x locus combination.
                     if not qtl_stratum in qtl_ld_coverage_metrics.keys():
                         qtl_ld_coverage_metrics[qtl_stratum] = _compute_coverage_metrics(
-                            id1 = qtl_ids,
-                            pos1 = qtl_pos,
-                            allele1 = qtl_allele,
+                            snp_1 = qtl_snp,
+                            pos_1 = qtl_pos,
+                            var_1 = qtl_var,
                             source1 = "qtl",
-                            id2 = ld_ids,
-                            pos2 = ld_pos,
-                            allele2 = ld_allele,
+                            snp_2 = ld_snp,
+                            pos_2 = ld_pos,
+                            var_2 = ld_var,
                             source2 = "ld"
                         )
 
@@ -627,28 +629,28 @@ class CoverageCheck:
                         qtl_lead_in_ld[qtl_stratum] = self.evaluate_lead_overlap(
                             lead = qtl_lead,
                             lead_source = "qtl",
-                            target_ids = ld_ids,
+                            target_ids = ld_snp,
                             target_pos = ld_pos,
-                            target_allele = ld_allele,
+                            target_allele = ld_var,
                             target_source = "ld"
                         )
 
-                    # Classify the overlap between QTL and LD based on the computed coverage metrics. If LD is missing, classify as "Missing", otherwise use the classify_overlap method to determine the overlap class based on the percentage of QTL allele overlap with LD and the number of QTL alleles.
+                    # Classify the overlap between QTL and LD based on the computed coverage metrics. If LD is missing, classify as "Missing", otherwise use the classify_overlap method to determine the overlap class based on the percentage of QTL variant overlap with LD and the number of QTL variants.
                     if not qtl_stratum in qtl_ld_class.keys():
                         qtl_ld_class[qtl_stratum] = "Missing" if ld_missing else self.classify_overlap(
-                            value = qtl_ld_coverage_metrics[qtl_stratum][self.results_pct_qtl_allele_overlap_ld_key],
-                            n_query = qtl_ld_coverage_metrics[qtl_stratum][self.results_n_allele_qtl_key]
+                            value = qtl_ld_coverage_metrics[qtl_stratum][self.results_pct_qtl_var_overlap_ld_key],
+                            n_query = qtl_ld_coverage_metrics[qtl_stratum][self.results_n_var_qtl_key]
                         )
 
                     # Compute coverage metrics for GWAS stratum and QTL stratum (Will be unique for each stratum x stratum combination, so no need to cache and check for existence)
                     gwas_qtl_coverage_metrics = _compute_coverage_metrics(
-                        id1 = gwas_ids,
-                        pos1 = gwas_pos,
-                        allele1 = gwas_allele,
+                        snp_1 = gwas_snp,
+                        pos_1 = gwas_pos,
+                        var_1 = gwas_var,
                         source1 = "gwas",
-                        id2 = qtl_ids,
-                        pos2 = qtl_pos,
-                        allele2 = qtl_allele,
+                        snp_2 = qtl_snp,
+                        pos_2 = qtl_pos,
+                        var_2 = qtl_var,
                         source2 = "qtl"
                     )
 
@@ -656,29 +658,31 @@ class CoverageCheck:
                     gwas_lead_in_qtl = self.evaluate_lead_overlap(
                         lead = gwas_lead,
                         lead_source = "gwas",
-                        target_ids = qtl_ids,
+                        target_ids = qtl_snp,
                         target_pos = qtl_pos,
-                        target_allele = qtl_allele,
+                        target_allele = qtl_var,
                         target_source = "qtl"
                     )
                     qtl_lead_in_gwas = self.evaluate_lead_overlap(
                         lead = qtl_lead,
                         lead_source = "qtl",
-                        target_ids = gwas_ids,
+                        target_ids = gwas_snp,
                         target_pos = gwas_pos,
-                        target_allele = gwas_allele,
+                        target_allele = gwas_var,
                         target_source = "gwas"
                     )
 
-                    # Classify the overlap between GWAS and QTL based on the computed coverage metrics. If either GWAS or QTL is missing, classify as "Missing", otherwise use the classify_overlap method to determine the overlap class based on the percentage of GWAS allele overlap with QTL and the number of GWAS alleles.
-                    gwas_qtl_pct_min = np.nanmin([gwas_qtl_coverage_metrics[self.results_pct_qtl_allele_overlap_ld_key], gwas_qtl_coverage_metrics[self.results_pct_gwas_allele_overlap_ld_key]]) if gwas_qtl_coverage_metrics[self.results_n_allele_gwas_key] and gwas_qtl_coverage_metrics[self.results_n_allele_qtl_key] else np.nan
-                    gwas_qtl_n_min = min(gwas_qtl_coverage_metrics[self.results_n_allele_gwas_key], gwas_qtl_coverage_metrics[self.results_n_allele_qtl_key]) if gwas_qtl_coverage_metrics[self.results_n_allele_gwas_key] and gwas_qtl_coverage_metrics[self.results_n_allele_qtl_key] else 0
+                    # Classify the overlap between GWAS and QTL based on the computed coverage metrics. 
+                    # If either GWAS or QTL is missing, classify as "Missing", otherwise use the classify_overlap method to determine the overlap class based on the percentage of GWAS variant overlap with QTL and the number of GWAS variants.
+                    gwas_qtl_pct_min = np.nanmin([gwas_qtl_coverage_metrics[self.results_pct_gwas_var_overlap_qtl_key], gwas_qtl_coverage_metrics[self.results_pct_qtl_var_overlap_gwas_key]]) if gwas_qtl_coverage_metrics[self.results_n_var_gwas_key] and gwas_qtl_coverage_metrics[self.results_n_var_qtl_key] else np.nan
+                    gwas_qtl_n_min = min(gwas_qtl_coverage_metrics[self.results_n_var_gwas_key], gwas_qtl_coverage_metrics[self.results_n_var_qtl_key]) if gwas_qtl_coverage_metrics[self.results_n_var_gwas_key] and gwas_qtl_coverage_metrics[self.results_n_var_qtl_key] else 0
                     gwas_qtl_class = self.classify_overlap(
                         value=gwas_qtl_pct_min,
                         n_query=gwas_qtl_n_min
                     )
 
-                    # Determine the overall overlap class based on the individual overlap classes for GWAS-LD, QTL-LD, and GWAS-QTL. If LD is missing, classify as "Low", otherwise use the _determine_overall_overlap_class method to determine the overall overlap class based on the individual overlap classes.
+                    # Determine the overall overlap class based on the individual overlap classes for GWAS-LD, QTL-LD, and GWAS-QTL. 
+                    # If LD is missing, classify as "Low", otherwise use the _determine_overall_overlap_class method to determine the overall overlap class based on the individual overlap classes.
                     overall_overlap_class = _determine_overall_overlap_class(
                         ld_missing = ld_missing,
                         gwas_qtl_class = gwas_qtl_class,
@@ -686,11 +690,12 @@ class CoverageCheck:
                         qtl_ld_class = qtl_ld_class[qtl_stratum]
                     )
 
-                    # Determine the review priority based on the overall overlap class and whether any critical lead variants are missing. If LD is missing or if there are GWAS or QTL variants but their lead variants are not in LD, set the review priority to "High", otherwise set it to "Low".
+                    # Determine the review priority based on the overall overlap class and whether any critical lead variants are missing. 
+                    # If LD is missing or if there are GWAS or QTL variants but their lead variants are not in LD, set the review priority to "High", otherwise set it to "Low".
                     missing_critical_lead = (
                         ld_missing or
-                        (gwas_ld_coverage_metrics[self.results_n_allele_gwas_key] > 0 and not (gwas_lead_in_ld["gwas_lead_allele_in_ld"] or gwas_lead_in_ld["gwas_lead_pos_in_ld"])) or
-                        (qtl_ld_coverage_metrics[qtl_stratum][self.results_n_allele_qtl_key] > 0 and not (qtl_lead_in_ld[qtl_stratum]["qtl_lead_allele_in_ld"] or qtl_lead_in_ld[qtl_stratum]["qtl_lead_pos_in_ld"]))
+                        (gwas_ld_coverage_metrics[self.results_n_var_gwas_key] > 0 and not (gwas_lead_in_ld["gwas_lead_allele_in_ld"] or gwas_lead_in_ld["gwas_lead_pos_in_ld"])) or
+                        (qtl_ld_coverage_metrics[qtl_stratum][self.results_n_var_qtl_key] > 0 and not (qtl_lead_in_ld[qtl_stratum]["qtl_lead_allele_in_ld"] or qtl_lead_in_ld[qtl_stratum]["qtl_lead_pos_in_ld"]))
                     )
                     review_priority = _determine_review_priority(
                         ld_missing = ld_missing,
@@ -698,24 +703,27 @@ class CoverageCheck:
                         missing_critical_lead = missing_critical_lead
                     )
 
-                    # Provide reasons for the review priority based on the overlap classes and whether any critical lead variants are missing. If LD is missing, add a reason indicating that the LD BIM file is missing or empty. If the GWAS-LD or QTL-LD overlap classes are "Low" or "Missing", add reasons indicating low or missing coverage. If the GWAS-QTL overlap class is "Low", add a reason indicating low overlap. If there are GWAS or QTL variants but their lead variants are not in LD, add reasons indicating that the lead variants are missing from LD. If there are no QTL variants in the locus/tissue, add a reason indicating that. If none of these conditions apply, add a reason indicating that coverage looks acceptable.
+                    # Provide reasons for the review priority based on the overlap classes and whether any critical lead variants are missing. 
+                    # If LD is missing, add a reason indicating that the LD BIM file is missing or empty. If the GWAS-LD or QTL-LD overlap classes are "Low" or "Missing", add reasons indicating low or missing coverage. 
+                    # If the GWAS-QTL overlap class is "Low", add a reason indicating low overlap. If there are GWAS or QTL variants but their lead variants are not in LD, add reasons indicating that the lead variants are missing from LD. 
+                    # If there are no QTL variants in the locus/tissue, add a reason indicating that. If none of these conditions apply, add a reason indicating that coverage looks acceptable.
                     review_priority_reasons = _provide_review_priority_reasons(
                         ld_missing = ld_missing,
                         gwas_ld_class = gwas_ld_class,
                         qtl_ld_class = qtl_ld_class[qtl_stratum],
                         gwas_qtl_class = gwas_qtl_class,
-                        n_qtl = qtl_ld_coverage_metrics[qtl_stratum][self.results_n_allele_qtl_key],
-                        n_gwas = gwas_ld_coverage_metrics[self.results_n_allele_gwas_key],
+                        n_qtl = qtl_ld_coverage_metrics[qtl_stratum][self.results_n_var_qtl_key],
+                        n_gwas = gwas_ld_coverage_metrics[self.results_n_var_gwas_key],
                         gwas_lead_in_ld = gwas_lead_in_ld,
                         qtl_lead_in_ld = qtl_lead_in_ld[qtl_stratum]
                     )
 
                     # Append the results to the coverage rows
                     coverage_rows.append({
-                        self.manifest_loc_key: locus_id,
-                        self.manifest_chr_key: locus_row[self.manifest_chr_key],
-                        self.manifest_left_bound_key: locus_row[self.manifest_left_bound_key],
-                        self.manifest_right_bound_key: locus_row[self.manifest_right_bound_key],
+                        self.standardized_locus_id_key: locus_id,
+                        self.standardized_chr_key: locus_row[self.standardized_chr_key],
+                        self.standardized_left_bound_key: locus_row[self.standardized_left_bound_key],
+                        self.standardized_right_bound_key: locus_row[self.standardized_right_bound_key],
                         self.results_ld_missing_key: ld_missing,
                         self.manifest_bim_key: locus_row[self.manifest_bim_key],
                         f"{self.manifest_bim_key}_path": str(bim_path),
@@ -727,7 +735,7 @@ class CoverageCheck:
                         "lead_gwas_p": gwas_lead[self.standardized_p_key],
                         **gwas_lead_in_ld,
                         **qtl_ld_coverage_metrics[qtl_stratum],
-                        "qtl_ld_overlap_class": qtl_ld_class,
+                        "qtl_ld_overlap_class": qtl_ld_class[qtl_stratum],
                         "lead_qtl_variant": qtl_lead[self.standardized_snp_key],
                         "lead_qtl_p": qtl_lead[self.standardized_p_key],
                         **qtl_lead_in_ld[qtl_stratum],
@@ -754,21 +762,23 @@ class CoverageCheck:
             "_priority_sort",
             "_overlap_sort",    
             self.results_ld_missing_key,
-            self.results_pct_gwas_allele_overlap_ld_key,
-            self.results_pct_qtl_allele_overlap_ld_key,
-            self.results_pct_gwas_allele_overlap_qtl_key,
+            self.results_pct_gwas_var_overlap_ld_key,
+            self.results_pct_qtl_var_overlap_ld_key,
+            self.results_pct_gwas_var_overlap_qtl_key,
         ]
         coverage_sorted = results_df.sort_values(sort_cols, ascending=[True, True, False, True, True, True], na_position="first")
         coverage_sorted = coverage_sorted.drop(columns=["_priority_sort", "_overlap_sort"])
 
         # Save the full coverage results to a TSV file in the output QC directory.
-        all_out = self.out_qc_dir / f"coverage_by_locus.tsv"
-        coverage_sorted.to_csv(all_out, sep="\t", index=False)
+        all_out_fp = Path(self.out_qc_dir, "coverage_by_locus.tsv")
+        coverage_sorted.to_csv(all_out_fp, sep="\t", index=False)
+        print(f"Saved coverage results for {len(coverage_sorted)} locus x stratum combinations to {all_out_fp}")
 
         # Save a filtered file containing only loci with "High" or "Medium" review priority to a TSV file in the output QC directory.
         problem = coverage_sorted[coverage_sorted[self.results_review_priority_key].isin(["High", "Medium"])].copy()
-        problem_out = self.out_qc_dir / "problem_loci_ranked.tsv"
-        problem.to_csv(problem_out, sep="\t", index=False)
+        problem_out_fp = Path(self.out_qc_dir, "problem_loci_ranked.tsv")
+        problem.to_csv(problem_out_fp, sep="\t", index=False)
+        print(f"Saved problem loci results for {len(problem)} locus x stratum combinations to {problem_out_fp}")
 
         # Collapsed locus-level summary: one row per locus with worst priority/overlap observed across strata.
         tmp = results_df.copy()
@@ -776,17 +786,17 @@ class CoverageCheck:
         tmp[self.output_overlap_rank_key] = tmp[self.results_overall_overlap_class_key].map(overlap_order)
         locus_summary = (
             tmp
-            .groupby([self.manifest_loc_key, self.manifest_chr_key, self.manifest_left_bound_key, self.manifest_right_bound_key], as_index=False)
+            .groupby([self.standardized_locus_id_key, self.standardized_chr_key, self.standardized_left_bound_key, self.standardized_right_bound_key], as_index=False)
             .agg(
                 any_ld_missing=(self.results_ld_missing_key, "max"),
                 worst_review_priority_rank=(self.output_priority_rank_key, "min"),
                 worst_overlap_rank=(self.output_overlap_rank_key, "min"),
-                n_rows=(self.manifest_loc_key, "size"),
+                n_rows=(self.standardized_locus_id_key, "size"),
                 n_high_priority_rows=(self.results_review_priority_key, lambda x: int((x == "High").sum())),
                 n_medium_priority_rows=(self.results_review_priority_key, lambda x: int((x == "Medium").sum())),
-                min_pct_gwas_in_ld_by_allele=(self.results_pct_gwas_allele_overlap_ld_key, "min"),
-                min_pct_qtl_in_ld_by_allele=(self.results_pct_qtl_allele_overlap_ld_key, "min"),
-                min_pct_gwas_in_qtl_by_allele=(self.results_pct_gwas_allele_overlap_qtl_key, "min"),
+                min_pct_gwas_in_ld_by_allele=(self.results_pct_gwas_var_overlap_ld_key, "min"),
+                min_pct_qtl_in_ld_by_allele=(self.results_pct_qtl_var_overlap_ld_key, "min"),
+                min_pct_gwas_in_qtl_by_allele=(self.results_pct_gwas_var_overlap_qtl_key, "min"),
             )
         )
 
@@ -808,19 +818,21 @@ class CoverageCheck:
         )
 
         # Save the locus-level summary to a TSV file in the output QC directory.
-        locus_out = self.out_qc_dir / "coverage_summary_by_locus.tsv"
-        locus_summary.to_csv(locus_out, sep="\t", index=False)
+        locus_out_fp = Path(self.out_qc_dir, "coverage_summary_by_locus.tsv")
+        locus_summary.to_csv(locus_out_fp, sep="\t", index=False)
+        print(f"Saved locus summary results for {len(locus_summary)} locus x stratum combinations to {locus_out_fp}")
 
         # Save a filtered file containing only loci with missing or empty LD to a TSV file in the output QC directory.
         missing_ld = (
             results_df.loc[results_df[self.results_ld_missing_key], [
-                self.manifest_loc_key, self.manifest_chr_key, self.manifest_left_bound_key, self.manifest_right_bound_key,
+                self.standardized_locus_id_key, self.standardized_chr_key, self.standardized_left_bound_key, self.standardized_right_bound_key,
                 self.manifest_bim_key, f"{self.manifest_bim_key}_path", self.results_review_priority_reason_key
             ]]
             .drop_duplicates()
         )
-        missing_ld_out = self.out_qc_dir / "missing_or_empty_ld_loci.tsv"
-        missing_ld.to_csv(missing_ld_out, sep="\t", index=False)
+        missing_ld_out_fp = Path(self.out_qc_dir, "missing_or_empty_ld_loci.tsv")
+        missing_ld.to_csv(missing_ld_out_fp, sep="\t", index=False)
+        print(f"Saved missing/empty LD loci results for {len(missing_ld)} loci to {missing_ld_out_fp}")
 
 
     def run(self) -> None:
@@ -852,6 +864,10 @@ def main(args: argparse.Namespace) -> None:
         None: The function saves the coverage evaluation results to a CSV file specified in args.output_file
 
     """
+    # Create output QC directory if it doesn't exist
+    qc_dir = Path(args.out_qc_dir)
+    qc_dir.mkdir(parents=True, exist_ok=True)
+
     # Create CoverageCheck instance
     coverage_checker = CoverageCheck(args)
 
@@ -865,20 +881,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate variant coverage across GWAS, QTL, and LD datasets.")
     parser.add_argument("--out_ld_dir", required=True, help="Directory containing LD .bim files and the LD manifest.")
     parser.add_argument("--ld_manifest", required=True, help="Path to the LD manifest file.")
-    parser.add_argument("--manifest_loc_key", default="LOCUS_ID", help="Column name in the LD manifest that contains locus identifiers.")
-    parser.add_argument("--manifest_chr_key", default="CHR", help="Column name in the LD manifest that contains chromosome information.")
-    parser.add_argument("--manifest_left_bound_key", default="LEFT_500KB", help="Column name in the LD manifest that contains left boundary positions.")
-    parser.add_argument("--manifest_right_bound_key", default="RIGHT_500KB", help="Column name in the LD manifest that contains right boundary positions.")
+    parser.add_argument("--standardized_locus_id_key", default="LOCUS_ID", help="Column name in the LD manifest that contains locus identifiers.")
+    parser.add_argument("--standardized_chr_key", default="CHR", help="Column name in the LD manifest that contains chromosome information.")
+    parser.add_argument("--standardized_left_bound_key", default="LEFT_500KB", help="Column name in the LD manifest that contains left boundary positions.")
+    parser.add_argument("--standardized_right_bound_key", default="RIGHT_500KB", help="Column name in the LD manifest that contains right boundary positions.")
+    parser.add_argument("--standardized_snp_key", required=True, help="Column name in the GWAS/QTL files that contains standardized rsIDs.")
+    parser.add_argument("--standardized_pos_key", required=True, help="Column name in the GWAS/QTL files that contains standardized position information.")
+    parser.add_argument("--standardized_var_key", required=True, help="Column name in the GWAS/QTL files that contains standardized variant IDs")
+    parser.add_argument("--standardized_p_key", required=True, help="Column name in the GWAS/QTL files that contains standardized p-value information.")
+    parser.add_argument("--standardized_non_effect_allele_key", required=True, help="Column name in the GWAS/QTL files that contains standardized non-effect allele information.")
+    parser.add_argument("--standardized_effect_allele_key", required=True, help="Column name in the GWAS/QTL files that contains standardized effect allele information.")
     parser.add_argument("--manifest_bim_key", default="BIM", help="Column name in the LD manifest that contains .bim file names.")
     parser.add_argument("--gwas_fp", required=True, help="Path to the GWAS summary statistics file.")
     parser.add_argument("--gwas_strata_key", default=None, help="Column name in the GWAS file that contains stratum identifiers (optional).")
     parser.add_argument("--qtl_fp", required=True, help="Path to the QTL summary statistics file.")
     parser.add_argument("--qtl_strata_key", default=None, help="Column name in the QTL file that contains stratum identifiers (optional).")
-    parser.add_argument("--standardized_snp_key", required=True, help="Column name in the GWAS/QTL files that contains standardized rsIDs.")
-    parser.add_argument("--standardized_chr_key", required=True, help="Column name in the GWAS/QTL files that contains standardized chromosome information.")
-    parser.add_argument("--standardized_pos_key", required=True, help="Column name in the GWAS/QTL files that contains standardized position information.")
-    parser.add_argument("--standardized_var_key", required=True, help="Column name in the GWAS/QTL files that contains standardized variant IDs")
-    parser.add_argument("--standardized_p_key", required=True, help="Column name in the GWAS/QTL files that contains standardized p-value information.")
     parser.add_argument("--high_overlap_min", type=float, default=0.90, help="Minimum coverage proportion to classify as 'High' overlap.")
     parser.add_argument("--medium_overlap_min", type=float, default=0.70, help="Minimum coverage proportion to classify as 'Medium' overlap.")
     parser.add_argument("--out_qc_dir", required=True, help="Path to the output directory where coverage evaluation results will be saved.")
