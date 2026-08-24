@@ -13,7 +13,7 @@ from pathlib import Path
 from http.client import IncompleteRead
 from urllib.error import HTTPError, URLError
 from xml.parsers.expat import ExpatError
-from helpers import load_input_data, normalize_chromosome, numeric_series
+from helpers import load_input_data, normalize_chromosome, numeric_series, add_variant_id
 
 
 # ------------------------- Helper Function Definitions -------------------------
@@ -99,7 +99,7 @@ def _fetch_rsid_records(rsids: list) -> dict:
 
     return records
 
-def _extract_position_from_record(record: dict) -> int:
+def _extract_position_from_record(record: dict) -> float:
     """
     Extract the genomic position from an NCBI dbSNP record.
     
@@ -107,7 +107,7 @@ def _extract_position_from_record(record: dict) -> int:
         record (dict): The NCBI dbSNP record.
 
     Returns:
-        int: The genomic position, or NaN if not found.
+        float: The genomic position, or NaN if not found.
     """
     # Extract the CHRPOS field from the record, which contains the genomic position
     position = record.get("CHRPOS", None)
@@ -115,12 +115,12 @@ def _extract_position_from_record(record: dict) -> int:
     # Check if CHRPOS is present; if not, log an error and return NaN
     if position is None:
         print(f"Error: CHRPOS not found in record for rsID rs{record.get('@uid', 'Unknown')}")
-        return int(np.nan)
+        return np.nan
     
     # Extract the position. Pre-colon part is the chromosome, post-colon part is the position.
     position = position.split(":")[-1]  
 
-    return int(position)
+    return float(position)
 
 
 def _extract_alleles_from_record(record: dict) -> tuple:
@@ -452,62 +452,6 @@ class SumStatsTransformer:
                 )
             )
 
-    def add_variant_id(self):
-        """
-        Create a variant ID in the format chr:bp:ref:alt for each row in the DataFrame.
-
-        Returns:
-            None: The DataFrame is modified in place to include a new column with the variant ID.
-
-        """
-        # # Check if dbSNP alleles and summary statistics alleles are present for each row in the DataFrame
-        # dbsnp_alleles_present = self.annotated_df[[self.dbSNP_non_effect_allele_key, self.dbSNP_effect_allele_key]].notna().all(axis=1) #type: ignore
-        # ss_alleles_present = self.annotated_df[[self.ss_non_effect_allele_key, self.ss_effect_allele_key]].notna().all(axis=1) #type: ignore
-
-        # # Check if dbSNP position and summary statistics position are present for each row in the DataFrame
-        # dbsnp_pos_present = self.annotated_df[self.dbSNP_pos_key].notna().all(axis=1) #type: ignore
-        # ss_pos_present = self.annotated_df[self.ss_pos_key].notna().all(axis=1) #type: ignore
-
-        # # Create a new column in the DataFrame to store the variant ID, which is constructed from the chromosome, position, non-effect allele, and effect allele. 
-        # # Use dbSNP alleles if available, otherwise use the alleles from the summary statistics if available or "NA".
-        # self.annotated_df[self.standardized_variant_id_key] = np.where(
-        #     ~dbsnp_alleles_present & ~ss_alleles_present & ~dbsnp_pos_present & ~ss_pos_present,
-        #     "NA",
-        #     np.where(
-        #         dbsnp_alleles_present & dbsnp_pos_present,
-        #         self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.dbSNP_pos_key].astype(str) + ":" +
-        #         self.annotated_df[self.dbSNP_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.dbSNP_effect_allele_key].astype(str),
-        #         np.where(
-        #             dbsnp_pos_present,
-        #             self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.dbSNP_pos_key].astype(str) + ":" +
-        #             self.annotated_df[self.ss_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.ss_effect_allele_key].astype(str),
-        #             np.where(
-        #                 dbsnp_alleles_present,
-        #                 self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.ss_pos_key].astype(str) + ":" +
-        #                 self.annotated_df[self.dbSNP_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.dbSNP_effect_allele_key].astype(str),
-        #                 self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.ss_pos_key].astype(str) + ":" +
-        #                 self.annotated_df[self.ss_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.ss_effect_allele_key].astype(str)
-        #             )
-        #         )
-        #     )
-        # )
-
-        # Resolve each component with per-row fallback via _coalesce:
-        # prefer dbSNP values where available, fall back to summary statistics values
-        pos  = _coalesce(self.annotated_df, self.dbSNP_pos_key, self.ss_pos_key)
-        ref  = _coalesce(self.annotated_df, self.dbSNP_non_effect_allele_key, self.ss_non_effect_allele_key)
-        alt  = _coalesce(self.annotated_df, self.dbSNP_effect_allele_key, self.ss_effect_allele_key)
-        chrom = self.annotated_df[self.ss_chr_key].astype(str)
-
-        # Build the variant ID as chr:pos:ref:alt; set to "NA" where any component is missing
-        all_present = pos.notna() & ref.notna() & alt.notna()
-        self.annotated_df[self.standardized_variant_id_key] = np.where(
-            all_present,
-            chrom + ":" + pos.astype(str) + ":" + ref.astype(str) + ":" + alt.astype(str),
-            "NA"
-        )
-
-
     def calculate_missing_summary_statistics(self):
         """
         Calculate missing summary statistics (N, statistic, SE, beta, var(beta), SDY, P)
@@ -618,8 +562,15 @@ class SumStatsTransformer:
         # Check allele match if effect/non-effect allele columns are available
         self.validate_dbSNP()
 
-        # Add variant ID 
-        self.add_variant_id()
+        # Resolve each component with per-row fallback via _coalesce:
+        # prefer dbSNP values where available, fall back to summary statistics values
+        pos  = _coalesce(self.annotated_df, self.dbSNP_pos_key, self.ss_pos_key)
+        ref  = _coalesce(self.annotated_df, self.dbSNP_non_effect_allele_key, self.ss_non_effect_allele_key)
+        alt  = _coalesce(self.annotated_df, self.dbSNP_effect_allele_key, self.ss_effect_allele_key)
+        chrom = self.annotated_df[self.ss_chr_key].astype(str)
+
+        # Add variant ID as chr:bp:ref:alt, using dbSNP values where available, falling back to summary statistics values
+        self.annotated_df = add_variant_id(self.annotated_df, chrom, pos, ref, alt, self.standardized_variant_id_key)
 
         # Calculate missing summary statistics
         self.calculate_missing_summary_statistics()
