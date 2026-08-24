@@ -24,7 +24,6 @@ SS_SDY_KEY=""
 SS_TISSUE_KEY=""
 
 # Input Loci File
-OUTPUT_DIR="/mnt/output/output/coloc"
 LOCI_FILE="meta6_gwas_loci.merged.tsv"
 LOCI_LEFT_BOUND_KEY="LEFT_500KB"
 LOCI_RIGHT_BOUND_KEY="RIGHT_500KB"
@@ -47,11 +46,16 @@ STANDARDIZED_VAR_BETA_KEY="VARBETA"
 STANDARDIZED_SDY_KEY="SDY"
 STANDARDIZED_TISSUE_KEY="TISSUE"
 
+# Output Directories
+OUTPUT_DIR="/mnt/output/output/coloc"
+QC_OUTPUT_DIR="/mnt/output/output/coloc/qc"
+
 # Run sum_stats_transform.py
 python3 -u src/sum_stats_transform.py \
     --sum_stats_file $SUM_STATS_FILE \
     --loci_file $LOCI_FILE \
     --output_dir $OUTPUT_DIR \
+    --qc_output_dir $QC_OUTPUT_DIR \
     --header_lines $HEADER_LINES \
     --entrez_email $ENTREZ_EMAIL \
     --ss_chr_key $SS_CHR_KEY \

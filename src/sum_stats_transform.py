@@ -210,6 +210,32 @@ def _extract_maf_from_record(record: dict) -> float:
     return float(freqs[0])
 
 
+def _coalesce(df, primary: Optional[str], fallback: Optional[str]) -> pd.Series:
+    """
+    Coalesce two columns in a DataFrame, returning the first non-null value from the primary column, or the fallback column if the primary is null.
+
+    Args:
+        df (pd.DataFrame): The DataFrame containing the columns to coalesce.
+        primary (Optional[str]): The name of the primary column to check for non-null values.
+        fallback (Optional[str]): The name of the fallback column to use if the primary is null.
+
+    Returns:
+        pd.Series: A Series containing the coalesced values from the primary and fallback columns.
+
+    """
+
+    # Check if the primary column is provided and exists in the DataFrame. If so, create a copy of the primary column as a Series.
+    if primary and primary in df.columns:
+        s = df[primary].copy()
+        if fallback and fallback in df.columns:
+            return s.fillna(df[fallback])
+        return s
+    
+    # If the primary column is not provided or does not exist, check if the fallback column is provided and exists in the DataFrame. If so, return a copy of the fallback column as a Series.
+    if fallback and fallback in df.columns:
+        return df[fallback].copy()
+    return pd.Series(np.nan, index=df.index)
+
 # ------------------------- Class Definition -------------------------
 
 class SumStatsTransformer:
@@ -220,6 +246,7 @@ class SumStatsTransformer:
 
     def __init__(self, args: argparse.Namespace):
         self.output_dir = Path(args.output_dir)
+        self.qc_output_dir = Path(args.qc_output_dir)
         self.sum_stats_fp = Path(args.sum_stats_file)
         print(f"Loading input data from {self.sum_stats_fp}...")
         self.ss_df = load_input_data(self.sum_stats_fp, args.header_lines)
@@ -433,35 +460,51 @@ class SumStatsTransformer:
             None: The DataFrame is modified in place to include a new column with the variant ID.
 
         """
-        # Check if dbSNP alleles and summary statistics alleles are present for each row in the DataFrame
-        dbsnp_alleles_present = self.annotated_df[[self.dbSNP_non_effect_allele_key, self.dbSNP_effect_allele_key]].notna().all(axis=1) #type: ignore
-        ss_alleles_present = self.annotated_df[[self.ss_non_effect_allele_key, self.ss_effect_allele_key]].notna().all(axis=1) #type: ignore
+        # # Check if dbSNP alleles and summary statistics alleles are present for each row in the DataFrame
+        # dbsnp_alleles_present = self.annotated_df[[self.dbSNP_non_effect_allele_key, self.dbSNP_effect_allele_key]].notna().all(axis=1) #type: ignore
+        # ss_alleles_present = self.annotated_df[[self.ss_non_effect_allele_key, self.ss_effect_allele_key]].notna().all(axis=1) #type: ignore
 
-        # Check if dbSNP position and summary statistics position are present for each row in the DataFrame
-        dbsnp_pos_present = self.annotated_df[self.dbSNP_pos_key].notna().all(axis=1) #type: ignore
-        ss_pos_present = self.annotated_df[self.ss_pos_key].notna().all(axis=1) #type: ignore
+        # # Check if dbSNP position and summary statistics position are present for each row in the DataFrame
+        # dbsnp_pos_present = self.annotated_df[self.dbSNP_pos_key].notna().all(axis=1) #type: ignore
+        # ss_pos_present = self.annotated_df[self.ss_pos_key].notna().all(axis=1) #type: ignore
 
-        # Create a new column in the DataFrame to store the variant ID, which is constructed from the chromosome, position, non-effect allele, and effect allele. Use dbSNP alleles if available, otherwise use the alleles from the summary statistics if available or "NA".
+        # # Create a new column in the DataFrame to store the variant ID, which is constructed from the chromosome, position, non-effect allele, and effect allele. 
+        # # Use dbSNP alleles if available, otherwise use the alleles from the summary statistics if available or "NA".
+        # self.annotated_df[self.standardized_variant_id_key] = np.where(
+        #     ~dbsnp_alleles_present & ~ss_alleles_present & ~dbsnp_pos_present & ~ss_pos_present,
+        #     "NA",
+        #     np.where(
+        #         dbsnp_alleles_present & dbsnp_pos_present,
+        #         self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.dbSNP_pos_key].astype(str) + ":" +
+        #         self.annotated_df[self.dbSNP_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.dbSNP_effect_allele_key].astype(str),
+        #         np.where(
+        #             dbsnp_pos_present,
+        #             self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.dbSNP_pos_key].astype(str) + ":" +
+        #             self.annotated_df[self.ss_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.ss_effect_allele_key].astype(str),
+        #             np.where(
+        #                 dbsnp_alleles_present,
+        #                 self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.ss_pos_key].astype(str) + ":" +
+        #                 self.annotated_df[self.dbSNP_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.dbSNP_effect_allele_key].astype(str),
+        #                 self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.ss_pos_key].astype(str) + ":" +
+        #                 self.annotated_df[self.ss_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.ss_effect_allele_key].astype(str)
+        #             )
+        #         )
+        #     )
+        # )
+
+        # Resolve each component with per-row fallback via _coalesce:
+        # prefer dbSNP values where available, fall back to summary statistics values
+        pos  = _coalesce(self.annotated_df, self.dbSNP_pos_key, self.ss_pos_key)
+        ref  = _coalesce(self.annotated_df, self.dbSNP_non_effect_allele_key, self.ss_non_effect_allele_key)
+        alt  = _coalesce(self.annotated_df, self.dbSNP_effect_allele_key, self.ss_effect_allele_key)
+        chrom = self.annotated_df[self.ss_chr_key].astype(str)
+
+        # Build the variant ID as chr:pos:ref:alt; set to "NA" where any component is missing
+        all_present = pos.notna() & ref.notna() & alt.notna()
         self.annotated_df[self.standardized_variant_id_key] = np.where(
-            ~dbsnp_alleles_present & ~ss_alleles_present & ~dbsnp_pos_present & ~ss_pos_present,
-            "NA",
-            np.where(
-                dbsnp_alleles_present & dbsnp_pos_present,
-                self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.dbSNP_pos_key].astype(str) + ":" +
-                self.annotated_df[self.dbSNP_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.dbSNP_effect_allele_key].astype(str),
-                np.where(
-                    dbsnp_pos_present,
-                    self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.dbSNP_pos_key].astype(str) + ":" +
-                    self.annotated_df[self.ss_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.ss_effect_allele_key].astype(str),
-                    np.where(
-                        dbsnp_alleles_present,
-                        self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.ss_pos_key].astype(str) + ":" +
-                        self.annotated_df[self.dbSNP_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.dbSNP_effect_allele_key].astype(str),
-                        self.annotated_df[self.ss_chr_key].astype(str) + ":" + self.annotated_df[self.ss_pos_key].astype(str) + ":" +
-                        self.annotated_df[self.ss_non_effect_allele_key].astype(str) + ":" + self.annotated_df[self.ss_effect_allele_key].astype(str)
-                    )
-                )
-            )
+            all_present,
+            chrom + ":" + pos.astype(str) + ":" + ref.astype(str) + ":" + alt.astype(str),
+            "NA"
         )
 
 
@@ -600,24 +643,44 @@ class SumStatsTransformer:
             self.annotated_df[self.ss_gene_id_key] = "NA"
 
         # Select columns to match the standardized layout
-        self.transformed_df = pd.DataFrame(self.annotated_df[[
-            self.standardized_chr_key,
-            self.dbSNP_pos_key or self.ss_pos_key,
-            self.standardized_variant_id_key,
-            self.ss_rsid_key or self.dbSNP_rsid_key,
-            self.ss_gene_id_key,
-            self.dbSNP_non_effect_allele_key or self.ss_non_effect_allele_key,
-            self.dbSNP_effect_allele_key or self.ss_effect_allele_key,
-            self.ss_p_key or self.standardized_p_key,
-            self.ss_beta_key or self.standardized_beta_key,
-            self.ss_var_beta_key or self.standardized_var_beta_key,
-            self.ss_sdy_key or self.standardized_sdy_key,
-            self.ss_se_key or self.standardized_se_key,
-            self.ss_maf_key or self.dbSNP_maf_key,
-            self.ss_n_key or self.standardized_n_key,
-            self.ss_tissue_key or self.standardized_tissue_key,
-            self.dbSNP_validation_key
-        ]])
+        # self.transformed_df = pd.DataFrame(self.annotated_df[[
+        #     self.standardized_chr_key,
+        #     self.dbSNP_pos_key or self.ss_pos_key,
+        #     self.standardized_variant_id_key,
+        #     self.ss_rsid_key or self.dbSNP_rsid_key,
+        #     self.ss_gene_id_key,
+        #     self.dbSNP_non_effect_allele_key or self.ss_non_effect_allele_key,
+        #     self.dbSNP_effect_allele_key or self.ss_effect_allele_key,
+        #     self.ss_p_key or self.standardized_p_key,
+        #     self.ss_beta_key or self.standardized_beta_key,
+        #     self.ss_var_beta_key or self.standardized_var_beta_key,
+        #     self.ss_sdy_key or self.standardized_sdy_key,
+        #     self.ss_se_key or self.standardized_se_key,
+        #     self.ss_maf_key or self.dbSNP_maf_key,
+        #     self.ss_n_key or self.standardized_n_key,
+        #     self.ss_tissue_key or self.standardized_tissue_key,
+        #     self.dbSNP_validation_key
+        # ]])
+
+        # Build each standardized column with per-row fallback
+        self.transformed_df = pd.DataFrame({
+            self.standardized_chr_key: _coalesce(self.annotated_df, self.standardized_chr_key, None),
+            self.standardized_pos_key: _coalesce(self.annotated_df, self.standardized_pos_key, None),
+            self.standardized_variant_id_key: _coalesce(self.annotated_df, self.standardized_variant_id_key, None),
+            self.standardized_rsid_key: _coalesce(self.annotated_df, self.standardized_rsid_key, None),
+            self.standardized_gene_id_key: _coalesce(self.annotated_df, self.standardized_gene_id_key, None),
+            self.standardized_non_effect_allele_key: _coalesce(self.annotated_df, self.standardized_non_effect_allele_key, None),
+            self.standardized_effect_allele_key: _coalesce(self.annotated_df, self.standardized_effect_allele_key, None),
+            self.standardized_p_key: _coalesce(self.annotated_df, self.standardized_p_key, None),
+            self.standardized_beta_key: _coalesce(self.annotated_df, self.standardized_beta_key, None),
+            self.standardized_var_beta_key: _coalesce(self.annotated_df, self.standardized_var_beta_key, None),
+            self.standardized_sdy_key: _coalesce(self.annotated_df, self.standardized_sdy_key, None),
+            self.standardized_se_key: _coalesce(self.annotated_df, self.standardized_se_key, None),
+            self.standardized_maf_key: _coalesce(self.annotated_df, self.standardized_maf_key, None),
+            self.standardized_n_key: _coalesce(self.annotated_df, self.standardized_n_key, None),
+            self.standardized_tissue_key: _coalesce(self.annotated_df, self.standardized_tissue_key, None),
+            self.dbSNP_validation_key: _coalesce(self.annotated_df, self.dbSNP_validation_key, None),
+        })
 
         # Rename columns to standardized names
         self.transformed_df.columns = [
@@ -636,6 +699,10 @@ class SumStatsTransformer:
             None: The DataFrames are saved to TSV files in the specified output directory.
 
         """
+        # Ensure output directories exist
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.qc_output_dir.mkdir(parents=True, exist_ok=True)
+
         # Filter out rows with "NA" in the standardized variant ID column for the standardized output
         print(f"Number of SNPs that were unable to be standardized: {len(self.transformed_df[self.transformed_df[self.standardized_variant_id_key] == 'NA'])}")
         standardized_df = self.transformed_df[self.transformed_df[self.standardized_variant_id_key] != "NA"]
@@ -666,13 +733,13 @@ class SumStatsTransformer:
 
         # Save the failed dbSNP DataFrame to a TSV file if it contains any rows
         if len(annotated_df_failed_dbsnp) > 0:
-            failed_dbsnp_fp = Path(f"{self.output_dir}/{input_file_base}.failed_dbsnp.tsv")
+            failed_dbsnp_fp = Path(f"{self.qc_output_dir}/{input_file_base}.failed_dbsnp.tsv")
             annotated_df_failed_dbsnp.to_csv(failed_dbsnp_fp, sep="\t", index=False)
             print(f"Saved failed dbSNP annotations to {failed_dbsnp_fp}")
 
         # Save the mismatched alleles DataFrame to a TSV file if it contains any rows
         if len(annotated_df_mismatched) > 0:
-            mismatched_alleles_fp = Path(f"{self.output_dir}/{input_file_base}.mismatched_alleles.tsv")
+            mismatched_alleles_fp = Path(f"{self.qc_output_dir}/{input_file_base}.mismatched_alleles.tsv")
             annotated_df_mismatched.to_csv(mismatched_alleles_fp, sep="\t", index=False)
             print(f"Saved mismatched alleles to {mismatched_alleles_fp}")
 
@@ -735,6 +802,7 @@ if __name__ == "__main__":
     parser.add_argument("--sum_stats_file", type=str, required=True, help="Path to the input file containing summary statistics.")
     parser.add_argument("--loci_file", type=str, required=True, help="Name of the file containing loci information. Output from define_loci.")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory to save the output files.")
+    parser.add_argument("--qc_output_dir", type=str, required=True, help="Directory to save the QC output files.")
     parser.add_argument("--header_lines", type=int, default=0, help="Number of header lines to skip in the input file.")
     parser.add_argument("--entrez_email", type=str, required=True, help="Email address for NCBI Entrez API.")
     parser.add_argument("--ss_chr_key", type=str, required=True, help="Column name for chromosome.")
