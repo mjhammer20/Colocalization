@@ -115,7 +115,7 @@ def _extract_position_from_record(record: dict) -> int:
     # Check if CHRPOS is present; if not, log an error and return NaN
     if position is None:
         print(f"Error: CHRPOS not found in record for rsID rs{record.get('@uid', 'Unknown')}")
-        return np.nan
+        return int(np.nan)
     
     # Extract the position. Pre-colon part is the chromosome, post-colon part is the position.
     position = position.split(":")[-1]  
