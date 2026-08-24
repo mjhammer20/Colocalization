@@ -13,10 +13,37 @@ from pathlib import Path
 from http.client import IncompleteRead
 from urllib.error import HTTPError, URLError
 from xml.parsers.expat import ExpatError
+from sumstats_liftover import liftover_df, get_chain_path #type: ignore (silences pylance warning)
 from helpers import load_input_data, normalize_chromosome, numeric_series, add_variant_id
 
 
 # ------------------------- Helper Function Definitions -------------------------
+
+def _liftover(df:pd.DataFrame, from_build:str, to_build:str, chr_key:str, pos_key:str) -> pd.DataFrame:
+    """
+    Perform liftover of genomic coordinates from one genome build to another.
+
+    Args:
+        df (pd.DataFrame): The DataFrame containing genomic coordinates.
+        from_build (str): The source genome build (e.g., "hg19").
+        to_build (str): The target genome build (e.g., "hg38").
+        chr_key (str): The column name for chromosome identifiers.
+        pos_key (str): The column name for base pair positions.
+
+    Returns:
+        pd.DataFrame: The DataFrame with updated genomic coordinates after liftover.
+
+    """
+    # Define chain ref name
+    chain_ref_name = f"{from_build}To{to_build.title()}"
+
+    # Get the path to the chain file for liftover
+    chain_path = get_chain_path(chain_ref_name)
+
+    # Perform liftover using the sumstats_liftover library
+    lifted_df = liftover_df(df, chain_path, chrom_col=chr_key, pos_col=pos_key)
+
+    return lifted_df
 
 @lru_cache(maxsize=65536)
 def _fetch_rsid(chromosome: str, position: int) -> str:
@@ -248,7 +275,8 @@ class SumStatsTransformer:
         self.output_dir = Path(args.output_dir)
         self.qc_output_dir = Path(args.qc_output_dir)
         self.sum_stats_fp = Path(args.sum_stats_file)
-        print(f"Loading input data from {self.sum_stats_fp}...")
+        self.sum_stats_genome_build = args.sum_stats_genome_build
+        print(f"Loading input data from {self.sum_stats_fp}... Built from {self.sum_stats_genome_build}")
         self.ss_df = load_input_data(self.sum_stats_fp, args.header_lines)
         print(f"Loaded input data from {self.sum_stats_fp} with shape: {self.ss_df.shape}")
         self.loci_fp = Path(self.output_dir, args.loci_file)
@@ -275,6 +303,7 @@ class SumStatsTransformer:
         self.ss_sdy_key = args.ss_sdy_key
         self.ss_gene_id_key = args.ss_gene_id_key
         self.ss_tissue_key = args.ss_tissue_key
+        self.target_genome_build = "hg38"
         self.annotated_df = pd.DataFrame()
         self.dbSNP_rsid_key = "rsID_dbsnp"
         self.dbSNP_pos_key = "POS_dbsnp"
@@ -300,6 +329,22 @@ class SumStatsTransformer:
         self.standardized_statistic_key = args.standardized_statistic_key
         self.standardized_tissue_key = args.standardized_tissue_key
         
+
+    def perform_liftover(self):
+        """
+        Perform liftover of summary statistics to the target genome build.
+
+        Returns:
+            None: The DataFrame is modified in place to reflect the liftover.
+
+        """
+        # Perform liftover of summary statistics to target genome build
+        liftover_df = _liftover(self.ss_df, self.sum_stats_genome_build, self.target_genome_build, self.ss_chr_key, self.ss_pos_key)
+
+        # Coalesce the liftover results with the original summary statistics, prioritizing liftover values
+        self.ss_df[self.ss_chr_key] = _coalesce(liftover_df, f"{self.ss_chr_key}_LIFT", self.ss_chr_key)
+        self.ss_df[self.ss_pos_key] = _coalesce(liftover_df, f"{self.ss_pos_key}_LIFT", self.ss_pos_key)
+
 
     def filter_by_expanded_ranges(self):
         """
@@ -707,6 +752,12 @@ class SumStatsTransformer:
         print("Normalizing chromosome column in summary statistics...")
         self.ss_df[self.standardized_chr_key] = self.ss_df[self.ss_chr_key].astype(str).map(normalize_chromosome)
 
+        # Liftover summary statistics to target genome build if necessary
+        if self.sum_stats_genome_build != self.target_genome_build:
+            print(f"Liftover from {self.sum_stats_genome_build} to {self.target_genome_build}...")
+            self.perform_liftover()
+            print(f"Liftover complete. New shape: {self.ss_df.shape}")
+
         # Filter to locus regions
         print("Filtering summary statistics to specified locus regions...")
         self.filter_by_expanded_ranges()
@@ -751,6 +802,7 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Transform summary statistics to standardized format.")
     parser.add_argument("--sum_stats_file", type=str, required=True, help="Path to the input file containing summary statistics.")
+    parser.add_argument("--sum_stats_genome_build", type=str, required=True, help="Genome build of the summary statistics (e.g., hg19, hg38).")
     parser.add_argument("--loci_file", type=str, required=True, help="Name of the file containing loci information. Output from define_loci.")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory to save the output files.")
     parser.add_argument("--qc_output_dir", type=str, required=True, help="Directory to save the QC output files.")
@@ -772,24 +824,24 @@ if __name__ == "__main__":
     parser.add_argument("--ss_var_beta_key", type=str, default=None, help="Column name for variance of beta (optional).")
     parser.add_argument("--ss_sdy_key", type=str, default=None, help="Column name for standard deviation of Y (optional).")
     parser.add_argument("--ss_tissue_key", type=str, default=None, help="Column name for tissue label (optional).")
-    parser.add_argument("--standardized_chr_key", type=str, required=True, help="Standardized column name for chromosome.")
-    parser.add_argument("--standardized_pos_key", type=str, required=True, help="Standardized column name for position.")
-    parser.add_argument("--standardized_rsid_key", type=str, required=True, help="Standardized column name for rsID.")
-    parser.add_argument("--standardized_variant_id_key", type=str, required=True, help="Standardized column name for variant ID.")
-    parser.add_argument("--standardized_gene_id_key", type=str, required=True, help="Standardized column name for gene ID.")
-    parser.add_argument("--standardized_non_effect_allele_key", type=str, required=True, help="Standardized column name for non-effect allele.")
-    parser.add_argument("--standardized_effect_allele_key", type=str, required=True, help="Standardized column name for effect allele.")
-    parser.add_argument("--standardized_p_key", type=str, required=True, help="Standardized column name for p-value.")
-    parser.add_argument("--standardized_beta_key", type=str, required=True, help="Standardized column name for beta coefficient.")
-    parser.add_argument("--standardized_se_key", type=str, required=True, help="Standardized column name for standard error.")
-    parser.add_argument("--standardized_n_key", type=str, required=True, help="Standardized column name for sample size.")
-    parser.add_argument("--standardized_statistic_key", type=str, required=True, help="Standardized column name for test statistic.")
-    parser.add_argument("--standardized_maf_key", type=str, required=True, help="Standardized column name for minor allele frequency.")
-    parser.add_argument("--standardized_var_beta_key", type=str, required=True, help="Standardized column name for variance of beta.")
-    parser.add_argument("--standardized_sdy_key", type=str, required=True, help="Standardized column name for standard deviation of Y.")
-    parser.add_argument("--standardized_tissue_key", type=str, required=True, help="Standardized column name for tissue label.")
-    parser.add_argument("--loci_left_bound_key", type=str, required=True, help="Column name for left bound of loci.")
-    parser.add_argument("--loci_right_bound_key", type=str, required=True, help="Column name for right bound of loci.")
+    parser.add_argument("--standardized_chr_key", type=str, default="CHR", help="Standardized column name for chromosome.")
+    parser.add_argument("--standardized_pos_key", type=str, default="BP", help="Standardized column name for position.")
+    parser.add_argument("--standardized_rsid_key", type=str, default="SNP", help="Standardized column name for rsID.")
+    parser.add_argument("--standardized_variant_id_key", type=str, default="VAR", help="Standardized column name for variant ID.")
+    parser.add_argument("--standardized_gene_id_key", type=str, default="GENE", help="Standardized column name for gene ID.")
+    parser.add_argument("--standardized_non_effect_allele_key", type=str, default="NON_EFFECT", help="Standardized column name for non-effect allele.")
+    parser.add_argument("--standardized_effect_allele_key", type=str, default="EFFECT", help="Standardized column name for effect allele.")
+    parser.add_argument("--standardized_p_key", type=str, default="P", help="Standardized column name for p-value.")
+    parser.add_argument("--standardized_beta_key", type=str, default="BETA", help="Standardized column name for beta coefficient.")
+    parser.add_argument("--standardized_se_key", type=str, default="SE", help="Standardized column name for standard error.")
+    parser.add_argument("--standardized_n_key", type=str, default="N", help="Standardized column name for sample size.")
+    parser.add_argument("--standardized_statistic_key", type=str, default="STAT", help="Standardized column name for test statistic.")
+    parser.add_argument("--standardized_maf_key", type=str, default="MAF", help="Standardized column name for minor allele frequency.")
+    parser.add_argument("--standardized_var_beta_key", type=str, default="VARBETA", help="Standardized column name for variance of beta.")
+    parser.add_argument("--standardized_sdy_key", type=str, default="SDY", help="Standardized column name for standard deviation of Y.")
+    parser.add_argument("--standardized_tissue_key", type=str, default="TISSUE", help="Standardized column name for tissue label.")
+    parser.add_argument("--loci_left_bound_key", type=str, default="LEFT_500KB", help="Column name for left bound of loci.")
+    parser.add_argument("--loci_right_bound_key", type=str, default="RIGHT_500KB", help="Column name for right bound of loci.")
 
     args = parser.parse_args()
     main(args)

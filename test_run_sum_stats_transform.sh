@@ -5,6 +5,7 @@ ENTREZ_EMAIL="matt@datatecnica.com"
 
 # Input Summary Statistics
 SUM_STATS_FILE="/mnt/working/summary_analysis_data/gwas_stats/GP2_et_al_2025_PD_case_control_EUR_ALL_hg38_rsID.txt.gz"
+SUM_STATS_GENOME_BUILD="hg19"
 HEADER_LINES=0
 SS_CHR_KEY="chromosome"
 SS_POS_KEY="base_pair_position"
@@ -53,6 +54,7 @@ QC_OUTPUT_DIR="/mnt/output/output/coloc/qc"
 # Run sum_stats_transform.py
 python3 -u src/sum_stats_transform.py \
     --sum_stats_file $SUM_STATS_FILE \
+    --sum_stats_genome_build $SUM_STATS_GENOME_BUILD \
     --loci_file $LOCI_FILE \
     --output_dir $OUTPUT_DIR \
     --qc_output_dir $QC_OUTPUT_DIR \
