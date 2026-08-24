@@ -5,7 +5,7 @@ ENTREZ_EMAIL="matt@datatecnica.com"
 
 # Input Summary Statistics
 SUM_STATS_FILE="/mnt/working/summary_analysis_data/gwas_stats/GP2_et_al_2025_PD_case_control_EUR_ALL_hg38_rsID.txt.gz"
-SUM_STATS_GENOME_BUILD="hg19"
+SUM_STATS_GENOME_BUILD="hg38"
 HEADER_LINES=0
 SS_CHR_KEY="chromosome"
 SS_POS_KEY="base_pair_position"
@@ -66,8 +66,8 @@ python3 -u src/sum_stats_transform.py \
     --ss_non_effect_allele_key $SS_NONEFFECT_KEY \
     --ss_effect_allele_key $SS_EFFECT_KEY \
     --ss_p_key $SS_P_KEY \
-    --ss_beta_key $SS_BETA_KEY \
     --ss_se_key $SS_SE_KEY \
+    --ss_beta_key $SS_BETA_KEY \
     --ss_maf_key $SS_MAF_KEY \
     --standardized_chr_key $STANDARDIZED_CHR_KEY \
     --standardized_pos_key $STANDARDIZED_POS_KEY \
@@ -87,4 +87,4 @@ python3 -u src/sum_stats_transform.py \
     --standardized_tissue_key $STANDARDIZED_TISSUE_KEY \
     --loci_left_bound_key $LOCI_LEFT_BOUND_KEY \
     --loci_right_bound_key $LOCI_RIGHT_BOUND_KEY \
-    2>&1 | tee /mnt/output/output/coloc/test_run_sum_stats_transform_gwas.log
+    2>&1 | tee /mnt/output/output/coloc/logs/test_run_sum_stats_transform_gwas.log

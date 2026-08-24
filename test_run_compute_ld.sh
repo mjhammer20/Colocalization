@@ -10,6 +10,8 @@ LD_MANIFEST="ld_manifest.tsv"
 CHR_KEY="CHR"
 LEFT_BOUND_KEY="LEFT_500KB"
 RIGHT_BOUND_KEY="RIGHT_500KB"
+MAF_MIN=0.005
+GENO_MAX_MISSING=0.1
 
 # Run compute_LD.py
 python3 -u src/compute_LD.py \
@@ -22,4 +24,6 @@ python3 -u src/compute_LD.py \
     --standardized_chr_key "$CHR_KEY" \
     --standardized_left_bound_key "$LEFT_BOUND_KEY" \
     --standardized_right_bound_key "$RIGHT_BOUND_KEY" \
+    --maf_min "$MAF_MIN" \
+    --geno_max "$GENO_MAX_MISSING" \
     2>&1 | tee /mnt/output/output/coloc/logs/compute_ld.log

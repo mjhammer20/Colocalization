@@ -43,15 +43,14 @@ suppressPackageStartupMessages({
         A character vector of standardized chromosome labels (e.g., 'chr1', 'chrX', 'chr2').
 
     """
-    # Use string replacement to ensure all chromosome labels are in the format 'chrX'
-    paste0("chr", str_replace(toupper(as.character(x)), "^CHR", ""))
+    ifelse(grepl("^chr", x, ignore.case = TRUE), substr(x, 4, nchar(x)), x)
+
 }
 
 
-.canon_key <- function(chr, pos, a1, a2) {
+.add_variant_id <- function(chr, pos, a1, a2) {
     """
-    Constructs a canonical key for a genetic variant based on chromosome, position, and alleles.
-    The key is orientation-independent, meaning that the order of alleles does not matter.
+    Constructs a variant ID for a genetic variant based on chromosome, position, and alleles.
 
     Args:
         chr: Chromosome identifier (e.g., 'chr1', 'chrX').
@@ -63,14 +62,27 @@ suppressPackageStartupMessages({
         A string representing the canonical key for the variant in the format 'chr:pos:allele1_allele2'
 
     """
-    # Convert alleles to uppercase for consistency
-    a1 <- toupper(a1); a2 <- toupper(a2)
-
-    # Determine the lower and higher alleles to create an orientation-independent key
-    lo <- pmin(a1, a2); hi <- pmax(a1, a2)
-
     # Construct the canonical key using the standardized chromosome, position, and ordered alleles
-    paste0(.norm_chr(chr), ":", as.integer(pos), ":", lo, "_", hi)
+    paste0(.norm_chr(chr), ":", as.integer(pos), ":", a1, ":", a2)
+}
+
+.is_ambiguous <- function(a1, a2) {
+    """
+    Checks if a pair of alleles is ambiguous (i.e., A/T or C/G).
+
+    Args:
+        a1: First allele (string).
+        a2: Second allele (string).
+
+    Returns:
+        TRUE if the allele pair is ambiguous, FALSE otherwise.
+
+    """
+    # Construct a string representing the allele pair in uppercase
+    p <- paste0(toupper(a1), toupper(a2))
+
+    # Check if the allele pair is one of the ambiguous pairs (A/T or C/G)
+    p %in% c("AT", "TA", "CG", "GC")
 }
 
 
@@ -155,12 +167,15 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             self$ld_dir <- paste0(self$output_dir, args$ld_dir)
             self$gwas <- args$gwas
             self$gwas_path <- paste0(self$output_dir, args$gwas)
+            self$gwas_target_allele_key <- args$gwas_target_allele_key
             self$qtl <- args$qtl
             self$qtl_path <- paste0(self$output_dir, args$qtl)
+            self$qtl_target_allele_key <- args$qtl_target_allele_key
             self$ld_manifest <- args$ld_manifest
             self$ld_manifest_path <- paste0(self$ld_dir, args$ld_manifest)
 
             # Parameters
+            self$drop_ambiguous <- args$drop_ambiguous
             self$window_bp <- args$window_bp
             self$min_overlap <- args$min_overlap
             self$susie_min_snps <- args$susie_min_snps
@@ -175,28 +190,61 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 p2 = args$coloc_prior_p2,
                 p12 = args$coloc_prior_p12
             )
-        },
 
-        # Read and align LD
-        # Returns list(M = panel r matrix [canon-key dimnames], A1 = named vector of the
-        # allele the r is counted on). Sign alignment to a target allele happens later.
+            # Standardized Column Keys
+            self.standardized_variant_id_key <- args$standardized_variant_id_key
+            self.standardized_chr_key <- args$standardized_chr_key
+            self.standardized_pos_key <- args$standardized_pos_key
+            self.standardized_effect_allele_key <- args$standardized_effect_allele_key
+            self.standardized_non_effect_allele_key <- args$standardized_non_effect_allele_key
+            self.standardized_beta_key <- args$standardized_beta_key
+            self.standardized_var_beta_key <- args$standardized_var_beta_key
+            self.standardized_se_key <- args$standardized_se_key
+            self.standardized_sdy_key <- args$standardized_sdy_key
+        }
+
         read_ld <- function(ld_path, bim_path) {
+            """
+            Reads LD matrix and BIM file, aligns them, and returns a list containing the LD matrix and allele information.
+
+            Args:
+                ld_path: Path to the LD matrix file.
+                bim_path: Path to the BIM file.
+
+            Returns:
+                A list containing:
+                    - M: The LD matrix with canonical key dimnames.
+                    - A1: A named vector of the allele the LD is counted on.
+                    - A2: A named vector of the other allele.
+                Returns NULL if the LD or BIM files are missing or if there are issues with reading them
+
+            """
+            # Check if the LD and BIM files exist
             if (is.na(ld_path) || is.na(bim_path) ||
                 !file.exists(ld_path) || !file.exists(bim_path)) {
                 .log("  LD missing: ld=%s bim=%s", as.character(ld_path), as.character(bim_path))
                 return(NULL)
             }
+
+            # Read the BIM file and handle any errors
             bim <- tryCatch(fread(bim_path, header = FALSE, data.table = FALSE),
                             error = function(e) NULL)
+
+            # Check if the BIM file is missing or empty
             if (is.null(bim) || !nrow(bim)) {
                 .log("  BIM missing/empty: %s", as.character(bim_path))
                 return(NULL)
             }
-            # PLINK .bim: V1 chr, V2 id, V3 cM, V4 bp, V5 A1, V6 A2 ; --r counts A1
-            chr <- .norm_chr(bim$V1); pos <- as.integer(bim$V4)
-            a1  <- toupper(bim$V5);   a2  <- toupper(bim$V6)
-            keys <- .canon_key(chr, pos, a1, a2)
 
+            # Extract chromosome, position, and alleles from the BIM file and create canonical keys
+            # PLINK .bim: V1 chr, V2 id, V3 cM, V4 bp, V5 A1, V6 A2 ; --r counts A1
+            chr <- .norm_chr(bim$V1)
+            pos <- as.integer(bim$V4)
+            a1  <- toupper(bim$V5)
+            a2  <- toupper(bim$V6)
+            keys <- .add_variant_id(chr, pos, a1, a2)
+
+            # Read the LD matrix and handle any errors
             M <- tryCatch(as.matrix(fread(ld_path, header = FALSE, data.table = FALSE)),
                             error = function(e) NULL)
             if (is.null(M) || nrow(M) != length(keys) || ncol(M) != length(keys)) {
@@ -204,6 +252,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                     basename(ld_path), nrow(M %||% matrix(0)), ncol(M %||% matrix(0)), length(keys))
                 return(NULL)
             }
+
             # Keep the first occurrence of duplicate variants
             dup <- duplicated(keys)
             if (any(dup)) {
@@ -212,74 +261,169 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 a2 <- a2[!dup]
                 keys <- keys[!dup]
             }
+
+            # Set dimnames and storage mode for the LD matrix, and replace non-finite values with 0
             dimnames(M) <- list(keys, keys)
             storage.mode(M) <- "numeric"
             M[!is.finite(M)] <- 0
+
+            # Return the LD matrix and allele information as a list
             list(M = M, A1 = setNames(a1, keys), A2 = setNames(a2, keys))
         }
 
-        # Align panel LD to a TARGET allele per variant, subset to `snps`, return matrix
-        # in the order of `snps`. target_allele: named (by canon key) vector of the
-        # allele the dataset's beta is on (GWAS effect allele / GTEx ALT).
+
         align_ld <- function(ld, snps, target_allele) {
+            """
+            Aligns the LD matrix to a target allele for each variant, subsets it to the specified SNPs, and returns the aligned LD matrix.
+
+            Args:
+                ld: A list containing the LD matrix and allele information (output from read_ld).
+                snps: A character vector of SNPs to subset the LD matrix to.
+                target_allele: A named vector of target alleles for each SNP (names should match the SNPs) in which the datasets beta is on (ie. GWAS effect allele / GTEx ALT).
+            
+            Returns:
+                A numeric matrix representing the aligned LD matrix for the specified SNPs, with rows and columns corresponding to the SNPs in the order they appear in the `snps` vector.
+                Returns NULL if there are fewer than 2 SNPs present or if the LD matrix is NULL.
+            """
+            # Check if the LD matrix is NULL and return NULL if it is
             if (is.null(ld)) return(NULL)
+
+            # Subset the SNPs to those present in the LD matrix
             present <- snps[snps %in% rownames(ld$M)]
+
+            # If there are fewer than 2 SNPs present, return NULL
             if (length(present) < 2) return(NULL)
+
+            # Extract the LD matrix and allele information for the present SNPs
             M  <- ld$M[present, present, drop = FALSE]
-            a1 <- ld$A1[present]; a2 <- ld$A2[present]
+            a1 <- ld$A1[present]
+            a2 <- ld$A2[present]
             tgt <- target_allele[present]
+
             # Align the LD sign to the effect allele
             s <- rep(NA_real_, length(present))
             s[a1 == tgt] <- 1
             s[a2 == tgt] <- -1
-            ok <- is.finite(s)                          # drop variants whose alleles don't match panel
+
+            # Check for finite values in the sign vector
+            ok <- is.finite(s)
+
+            # If there are fewer than 2 SNPs with finite signs, return NULL
             if (sum(ok) < 2) return(NULL)
+
+            # Subset the present SNPs, LD matrix, and sign vector to those with finite signs
             present <- present[ok]; M <- M[ok, ok, drop = FALSE]; s <- s[ok]
-            M <- (s %o% s) * M                          # flip rows+cols for negated variants
+
+            # Align the LD matrix by multiplying it with the outer product of the sign vector
+            M <- (s %o% s) * M 
+
+            # Set the diagonal of the LD matrix to 1 and set the dimnames to the present SNPs
             diag(M) <- 1
+
+            # Set the dimnames of the LD matrix to the present SNPs and return the aligned LD matrix
             dimnames(M) <- list(present, present)
+
+            # Return the aligned LD matrix
             M
         }
 
-        # Build coloc datasets
+
         build_dataset <- function(tbl, ld, type, N, s = NULL, sdY = NULL) {
-            # tbl: snp(KEY), beta, varbeta, MAF, EA(target allele), OA, POS
-            D0 <- tbl %>% transmute(snp = KEY, beta = BETA_USE, varbeta = VARBETA_USE,
-                                    MAF = MAF, EA = EA, OA = OA, POS = POS)
+            """
+            Builds a dataset for coloc analysis by standardizing column names, collapsing duplicate SNPs, filtering ambiguous SNPs, aligning the LD matrix, and returning a list containing the dataset and the number of SNPs.
+
+            Args:
+                tbl: A data frame containing the input data with standardized column names for SNPs, beta, variance of beta, MAF, effect allele, non-effect allele, and position.
+                ld: A list containing the LD matrix and allele information (output from read_ld).
+                type: A string indicating the type of dataset (e.g., 'quant' for quantitative traits).
+                N: An integer representing the sample size.
+                s: An optional numeric vector representing the standard errors of the beta estimates.
+                sdY: An optional numeric value representing the standard deviation of the trait.
+
+            Returns:
+                A list containing:
+                    - D: A list representing the dataset for coloc analysis, including beta, variance of beta, SNPs, positions, type, sample size, and aligned LD matrix.
+                    - n: An integer representing the number of SNPs in the dataset.
+                Returns NULL if there are fewer than 2 SNPs in the dataset or if the aligned LD matrix is NULL.
+
+            """
+            # Mutate the input table to create a new data frame D0 with standardized column names for SNPs, beta, variance of beta, MAF, effect allele, non-effect allele, and position
+            D0 <- tbl %>% transmute(
+                snp = self.standardized_variant_id_key,
+                beta = self.standardized_beta_key,
+                varbeta = self.standardized_var_beta_key,
+                MAF = self.standardized_maf_key,
+                EA = self.standardized_effect_allele_key,
+                OA = self.standardized_non_effect_allele_key,
+                POS = self.standardized_pos_key
+            )
+
+            # Collapse duplicate SNPs by keeping the one with the smallest p-value (largest absolute z-score)
             D0 <- .collapse_keys(D0)
-            if (DROP_AMBIGUOUS) D0 <- D0 %>% filter(!.is_ambiguous(EA, OA))
+            if (self$drop_ambiguous) D0 <- D0 %>% filter(!.is_ambiguous(EA, OA))
+            
+            # Check if there are fewer than 2 SNPs in the dataset and return NULL if so
             if (nrow(D0) < 2) return(NULL)
 
-            LD <- .align_ld(ld, D0$snp, setNames(D0$EA, D0$snp))
+            # Align the LD matrix to the effect allele and subset it to the SNPs in D0
+            LD <- align_ld(ld, D0$snp, setNames(D0$EA, D0$snp))
+            
+            # Check if the aligned LD matrix is NULL and return NULL if so
             if (is.null(LD)) return(NULL)
 
+            # Subset D0 to only include SNPs present in the aligned LD matrix and reorder D0 to match the order of SNPs in the LD matrix
             keep <- D0$snp %in% rownames(LD)
             D0 <- D0[keep, , drop = FALSE]
-            D0 <- D0[match(rownames(LD), D0$snp), , drop = FALSE]   # exact same order as LD
-            if (nrow(D0) < MIN_SNPS_SUSIE) {
+
+            # Reorder D0 to match the order of SNPs in the LD matrix
+            D0 <- D0[match(rownames(LD), D0$snp), , drop = FALSE]
+            
+            # Check if there are fewer than the minimum number of SNPs required for SuSiE and return a list indicating too few SNPs if so
+            if (nrow(D0) < self$susie_min_snps) {
                 return(list(too_few = TRUE, n = nrow(D0)))
             }
 
+            # Create a list D containing the necessary information for the coloc analysis, including beta, variance of beta, SNPs, positions, type, sample size, and aligned LD matrix
             D <- list(
-                beta     = D0$beta,
-                varbeta  = D0$varbeta,
-                snp      = D0$snp,
+                beta = D0$beta,
+                varbeta = D0$varbeta,
+                snp = D0$snp,
                 position = D0$POS,
-                type     = type,
-                N        = N,
-                LD       = LD
+                type = type,
+                N = N,
+                LD = LD
             )
+
+            # Add optional parameters s and sdY to the list D if they are not NULL
             if (!is.null(s))   D$s   <- s
             if (!is.null(sdY)) D$sdY <- sdY
+
+            # Set the MAF in the list D to 0.5 for any non-finite values in D0$MAF
             if (any(is.finite(D0$MAF))) D$MAF <- ifelse(is.finite(D0$MAF), D0$MAF, 0.5)
+            
+            # Return a list containing the dataset D and the number of SNPs in D0
             list(D = D, n = nrow(D0))
         }
 
-        # Function to safely run SuSiE on a dataset, handling errors and logging
+
         safe_runsusie <- function(D, label) {
+            """
+            Safely runs the SuSiE algorithm on a given dataset, handling errors and logging the results.
+
+            Args:
+                D: A list representing the dataset for SuSiE analysis, including beta, variance of beta, SNPs, positions, type, sample size, and aligned LD matrix.
+                label: A string label for logging purposes.
+
+            Returns:
+                The result of the SuSiE analysis if successful, or NULL if there was an error
+
+            """
+            # Check if the dataset is valid for SuSiE analysis using the check_dataset function. If it fails, log the error and return NULL.
             if (!is.null(check_dataset(D, req = "LD"))) {     # NULL means OK
                 .log("  [%s] check_dataset failed (LD) -> skip SuSiE", label); return(NULL)
             }
+
+            # Attempt to run the SuSiE algorithm on the dataset, suppressing warnings and handling errors
             S <- tryCatch(
                 suppressWarnings(runsusie(
                     D, coverage = self$susie_cred_coverage, max_iter = self$susie_max_iter, L = self$susie_l,
@@ -287,24 +431,71 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 )),
                 error = function(e) { .log("  [%s] runsusie error: %s", label, conditionMessage(e)); NULL }
             )
+
+            # Check if the SuSiE result is NULL and return NULL if it is
             if (is.null(S)) return(NULL)
+
+            # Count the number of credible sets in the SuSiE result, handling any errors
             ncs <- tryCatch(length(S$sets$cs), error = function(e) 0L)
             .log("  [%s] SuSiE credible sets: %d", label, ncs %||% 0L)
-            if (is.null(ncs) || ncs < 1) return(NULL)   # nothing to colocalise
+
+            # Return NULL if there are no credible sets, indicating that there is nothing to colocalize
+            if (is.null(ncs) || ncs < 1) return(NULL)
+
+            # Return the SuSiE result
             S
         },
 
-        # Function to run SuSiE Colocalization analysis (Multiple Causal Variants)
         run_susie_coloc <- function(self, gwas_susie_fit, qtl_susie_fit, gwas_stratum, qtl_stratum, locus, ld, gene_id, gene_name, n_overlap, n_gwas_ld, n_eqtl_ld, n_gwas_signals, n_eqtl_signals, top_gwas_variant, top_gwas_pval, lead_eqtl_id, lead_eqtl_p, full_path) {
+            """
+            Runs SuSiE colocalization analysis between GWAS and QTL datasets, logs the results, and writes the summary to a specified file.
+
+            Args:
+                gwas_susie_fit: The SuSiE fit result for the GWAS dataset.
+                qtl_susie_fit: The SuSiE fit result for the QTL dataset.
+                gwas_stratum: The stratum identifier for the GWAS dataset.
+                qtl_stratum: The stratum identifier for the QTL dataset.
+                locus: A list containing locus information (e.g., LOCUS_ID, CHR_STR, START, END).
+                ld: A list containing LD information (e.g., status, e_same).
+                gene_id: The gene identifier for the QTL dataset.
+                gene_name: The gene name for the QTL dataset.
+                n_overlap: The number of overlapping SNPs between the GWAS and QTL datasets.
+                n_gwas_ld: The number of SNPs in LD for the GWAS dataset.
+                n_eqtl_ld: The number of SNPs in LD for the QTL dataset.
+                n_gwas_signals: The number of signals in the GWAS dataset.
+                n_eqtl_signals: The number of signals in the QTL dataset.
+                top_gwas_variant: The top variant in the GWAS dataset.
+                top_gwas_pval: The p-value of the top variant in the GWAS dataset.
+                lead_eqtl_id: The lead eQTL identifier.
+                lead_eqtl_p: The p-value of the lead eQTL.
+                full_path: The file path to write the colocalization summary results.
+
+            Returns:
+                None. The function logs the results and writes the colocalization summary to the specified file.
+
+            """
             .log("Running SuSiE colocalization...")
             
+            # Check if both GWAS and QTL SuSiE fits are not NULL before proceeding with colocalization analysis
             if (!is.null(gwas_susie_fit) && !is.null(qtl_susie_fit)) {
+                
+                # Run coloc.susie with the provided GWAS and QTL SuSiE fits, handling any errors
                 coloc_result <- tryCatch(coloc.susie(gwas_susie_fit, qtl_susie_fit, p1 = self$coloc_priors$p1, p2 = self$coloc_priors$p2, p12 = self$coloc_priors$p12),
                                 error = function(e) { .log("  coloc.susie error: %s", conditionMessage(e)); NULL })
+                
+                # Check if the coloc result is valid and contains a summary before proceeding to write the results
                 if (!is.null(coloc_result) && !is.null(coloc_result$summary) && nrow(coloc_result$summary)) {
+                    
+                    # Convert the coloc summary to a data frame for easier manipulation
                     coloc_summary <- as.data.frame(coloc_result$summary)
+
+                    # Loop through each row of the coloc summary and extract the credible set information for that row
                     for (result_index in seq_len(nrow(coloc_summary))) {
+
+                        # Extract the credible set information for the current row of the coloc summary
                         credible_set <- .credset_for_row(coloc_result, result_index)
+                        
+                        # Write the colocalization summary results to the specified file path in a streaming manner, appending to the file if it already exists
                         .stream_write(tibble(
                             gwas_stratum = gwas_stratum, qtl_stratum = qtl_stratum, locus_id = locus$LOCUS_ID,
                             is_mhc = .is_mhc_locus(locus$CHR_STR, locus$START, locus$END),
@@ -324,7 +515,11 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                             top_gwas_variant = top_gwas_variant, top_gwas_pval = top_gwas_pval,
                             lead_eqtl_id = lead_eqtl_id, lead_eqtl_p = lead_eqtl_p
                         ), full_path)
+
+                        # Update the bucket counter for SuSiE pairs and set the wrote_any flag to TRUE
                         bucket["susie_pairs"] <- bucket["susie_pairs"] + 1L
+
+                        # Set the wrote_any flag to TRUE to indicate that results have been written
                         wrote_any <- TRUE
                     }
                 }

@@ -98,7 +98,7 @@ def add_variant_id(
     all_present = pos.notna() & ref.notna() & alt.notna()
     df[variant_id_key] = np.where(
         all_present,
-        chr + ":" + pos.astype(str) + ":" + ref.astype(str) + ":" + alt.astype(str),
+        chr + ":" + pos.astype(int).astype(str) + ":" + ref.astype(str) + ":" + alt.astype(str),
         "NA"
     )
 

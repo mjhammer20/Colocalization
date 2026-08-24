@@ -310,7 +310,7 @@ class SumStatsTransformer:
         self.dbSNP_non_effect_allele_key = "A1_dbsnp"
         self.dbSNP_effect_allele_key = "A2_dbsnp"
         self.dbSNP_maf_key = "MAF_dbsnp"
-        self.dbSNP_validation_key = "Allele_Match"
+        self.dbSNP_validation_key = "dbSNP_Validation"
         self.standardized_non_effect_allele_key = args.standardized_non_effect_allele_key
         self.standardized_effect_allele_key = args.standardized_effect_allele_key
         self.standardized_maf_key = args.standardized_maf_key
@@ -342,8 +342,8 @@ class SumStatsTransformer:
         liftover_df = _liftover(self.ss_df, self.sum_stats_genome_build, self.target_genome_build, self.ss_chr_key, self.ss_pos_key)
 
         # Coalesce the liftover results with the original summary statistics, prioritizing liftover values
-        self.ss_df[self.ss_chr_key] = _coalesce(liftover_df, f"{self.ss_chr_key}_LIFT", self.ss_chr_key)
-        self.ss_df[self.ss_pos_key] = _coalesce(liftover_df, f"{self.ss_pos_key}_LIFT", self.ss_pos_key)
+        self.ss_df[self.ss_chr_key] = _coalesce(liftover_df, "CHR_LIFT", self.ss_chr_key)
+        self.ss_df[self.ss_pos_key] = _coalesce(liftover_df, "POS_LIFT", self.ss_pos_key)
 
 
     def filter_by_expanded_ranges(self):
@@ -488,9 +488,13 @@ class SumStatsTransformer:
                         (self.annotated_df[self.dbSNP_effect_allele_key] == self.annotated_df[self.ss_effect_allele_key]),
                         "Validated",
                         np.where(
-                            self.annotated_df[self.dbSNP_pos_key] != self.annotated_df[self.ss_pos_key],
-                            "Position Mismatch",
-                            "Allele Mismatch"
+                            (self.annotated_df[self.dbSNP_pos_key] != self.annotated_df[self.ss_pos_key]) & (self.annotated_df[self.dbSNP_non_effect_allele_key] != self.annotated_df[self.ss_non_effect_allele_key]) & (self.annotated_df[self.dbSNP_effect_allele_key] != self.annotated_df[self.ss_effect_allele_key]),
+                            "Position & Allele Mismatch",
+                            np.where(
+                                self.annotated_df[self.dbSNP_pos_key] != self.annotated_df[self.ss_pos_key],
+                                "Position Mismatch",
+                                "Allele Mismatch"
+                            )
                         )
                     ),
                     "Incomplete summary statistics columns for validation"
@@ -636,54 +640,46 @@ class SumStatsTransformer:
 
         # Ensure gene ID column exists
         if not self.ss_gene_id_key:
-            self.annotated_df[self.ss_gene_id_key] = "NA"
-
-        # Select columns to match the standardized layout
-        # self.transformed_df = pd.DataFrame(self.annotated_df[[
-        #     self.standardized_chr_key,
-        #     self.dbSNP_pos_key or self.ss_pos_key,
-        #     self.standardized_variant_id_key,
-        #     self.ss_rsid_key or self.dbSNP_rsid_key,
-        #     self.ss_gene_id_key,
-        #     self.dbSNP_non_effect_allele_key or self.ss_non_effect_allele_key,
-        #     self.dbSNP_effect_allele_key or self.ss_effect_allele_key,
-        #     self.ss_p_key or self.standardized_p_key,
-        #     self.ss_beta_key or self.standardized_beta_key,
-        #     self.ss_var_beta_key or self.standardized_var_beta_key,
-        #     self.ss_sdy_key or self.standardized_sdy_key,
-        #     self.ss_se_key or self.standardized_se_key,
-        #     self.ss_maf_key or self.dbSNP_maf_key,
-        #     self.ss_n_key or self.standardized_n_key,
-        #     self.ss_tissue_key or self.standardized_tissue_key,
-        #     self.dbSNP_validation_key
-        # ]])
+            self.annotated_df[self.standardized_gene_id_key] = "NA"
 
         # Build each standardized column with per-row fallback
         self.transformed_df = pd.DataFrame({
             self.standardized_chr_key: _coalesce(self.annotated_df, self.standardized_chr_key, None),
-            self.standardized_pos_key: _coalesce(self.annotated_df, self.standardized_pos_key, None),
+            self.standardized_pos_key: _coalesce(self.annotated_df, self.dbSNP_pos_key, self.ss_pos_key),
             self.standardized_variant_id_key: _coalesce(self.annotated_df, self.standardized_variant_id_key, None),
-            self.standardized_rsid_key: _coalesce(self.annotated_df, self.standardized_rsid_key, None),
-            self.standardized_gene_id_key: _coalesce(self.annotated_df, self.standardized_gene_id_key, None),
-            self.standardized_non_effect_allele_key: _coalesce(self.annotated_df, self.standardized_non_effect_allele_key, None),
-            self.standardized_effect_allele_key: _coalesce(self.annotated_df, self.standardized_effect_allele_key, None),
-            self.standardized_p_key: _coalesce(self.annotated_df, self.standardized_p_key, None),
-            self.standardized_beta_key: _coalesce(self.annotated_df, self.standardized_beta_key, None),
-            self.standardized_var_beta_key: _coalesce(self.annotated_df, self.standardized_var_beta_key, None),
-            self.standardized_sdy_key: _coalesce(self.annotated_df, self.standardized_sdy_key, None),
-            self.standardized_se_key: _coalesce(self.annotated_df, self.standardized_se_key, None),
-            self.standardized_maf_key: _coalesce(self.annotated_df, self.standardized_maf_key, None),
-            self.standardized_n_key: _coalesce(self.annotated_df, self.standardized_n_key, None),
-            self.standardized_tissue_key: _coalesce(self.annotated_df, self.standardized_tissue_key, None),
+            self.standardized_rsid_key: _coalesce(self.annotated_df, self.ss_rsid_key, self.dbSNP_rsid_key),
+            self.standardized_gene_id_key: _coalesce(self.annotated_df, self.ss_gene_id_key, self.standardized_gene_id_key),
+            self.standardized_non_effect_allele_key: _coalesce(self.annotated_df, self.dbSNP_non_effect_allele_key, self.ss_non_effect_allele_key),
+            self.standardized_effect_allele_key: _coalesce(self.annotated_df, self.dbSNP_effect_allele_key, self.ss_effect_allele_key),
+            self.standardized_p_key: _coalesce(self.annotated_df, self.ss_p_key, self.standardized_p_key),
+            self.standardized_beta_key: _coalesce(self.annotated_df, self.ss_beta_key, self.standardized_beta_key),
+            self.standardized_var_beta_key: _coalesce(self.annotated_df, self.ss_var_beta_key, self.standardized_var_beta_key),
+            self.standardized_sdy_key: _coalesce(self.annotated_df, self.ss_sdy_key, self.standardized_sdy_key),
+            self.standardized_se_key: _coalesce(self.annotated_df, self.ss_se_key, self.standardized_se_key),
+            self.standardized_maf_key: _coalesce(self.annotated_df, self.ss_maf_key, self.dbSNP_maf_key),
+            self.standardized_n_key: _coalesce(self.annotated_df, self.ss_n_key, self.standardized_n_key),
+            self.standardized_tissue_key: _coalesce(self.annotated_df, self.ss_tissue_key, self.standardized_tissue_key),
             self.dbSNP_validation_key: _coalesce(self.annotated_df, self.dbSNP_validation_key, None),
         })
 
         # Rename columns to standardized names
         self.transformed_df.columns = [
-            self.standardized_chr_key, self.standardized_pos_key, self.standardized_variant_id_key, self.standardized_rsid_key,
-            self.standardized_gene_id_key, self.standardized_non_effect_allele_key, self.standardized_effect_allele_key,
-            self.standardized_p_key, self.standardized_beta_key, self.standardized_var_beta_key, self.standardized_sdy_key,
-            self.standardized_se_key, self.standardized_maf_key, self.standardized_n_key, self.standardized_tissue_key, self.dbSNP_validation_key
+            self.standardized_chr_key,
+            self.standardized_pos_key,
+            self.standardized_variant_id_key,
+            self.standardized_rsid_key,
+            self.standardized_gene_id_key,
+            self.standardized_non_effect_allele_key,
+            self.standardized_effect_allele_key,
+            self.standardized_p_key,
+            self.standardized_beta_key,
+            self.standardized_var_beta_key,
+            self.standardized_sdy_key,
+            self.standardized_se_key,
+            self.standardized_maf_key,
+            self.standardized_n_key,
+            self.standardized_tissue_key,
+            self.dbSNP_validation_key
         ]
 
 

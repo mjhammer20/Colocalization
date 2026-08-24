@@ -374,7 +374,11 @@ class CoverageCheck:
         bim[self.standardized_pos_key] = numeric_series(bim, self.standardized_pos_key)
         
         # Create derived column for variant ID (chr:pos:a1:a2) using the add_variant_id helper function
-        bim = add_variant_id(bim, self.standardized_chr_key, self.standardized_pos_key, self.standardized_non_effect_allele_key, self.standardized_effect_allele_key, self.standardized_var_key)
+        chr = bim[self.standardized_chr_key]
+        pos = bim[self.standardized_pos_key]
+        ref = bim[self.standardized_non_effect_allele_key]
+        alt = bim[self.standardized_effect_allele_key]
+        bim = add_variant_id(bim, chr, pos, ref, alt, self.standardized_var_key)
 
         # Set metadata attributes indicating that the .bim file was successfully loaded
         bim.attrs[self.bim_missing_key] = False
@@ -395,7 +399,7 @@ class CoverageCheck:
                 mapping stratum label -> subset DataFrame restricted to the locus coordinates.
 
         """
-        # Extract chromosome and position boundaries for the locus
+        # Extract chromosome and position boundaries for the locus, enforcing types
         chrom = str(self.ld_manifest.loc[self.ld_manifest[self.standardized_locus_id_key] == locus_id, self.standardized_chr_key].values[0])
         left_bound = int(self.ld_manifest.loc[self.ld_manifest[self.standardized_locus_id_key] == locus_id, self.standardized_left_bound_key].values[0])
         right_bound = int(self.ld_manifest.loc[self.ld_manifest[self.standardized_locus_id_key] == locus_id, self.standardized_right_bound_key].values[0])
@@ -407,8 +411,8 @@ class CoverageCheck:
         # Filter the GWAS DataFrame to include only variants within the locus boundaries
         gwas_filtered = self.gwas[
             (self.gwas[self.standardized_chr_key].astype(str) == chrom) &
-            (self.gwas[self.standardized_pos_key] >= left_bound) &
-            (self.gwas[self.standardized_pos_key] <= right_bound)
+            (self.gwas[self.standardized_pos_key].astype(int) >= left_bound) &
+            (self.gwas[self.standardized_pos_key].astype(int) <= right_bound)
         ]
 
         # Create subsets of the GWAS DataFrame based on the locus boundaries and stratification keys
