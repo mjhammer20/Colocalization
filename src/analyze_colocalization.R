@@ -34,7 +34,7 @@ suppressPackageStartupMessages({
 
 .norm_chr <- function(x) {
     """
-    Standardizes chromosome labels by converting them to uppercase and ensuring they start with 'chr'.
+    Standardizes chromosome labels by converting them to uppercase and ensuring they self$locus_left_bound_key with 'chr'.
 
     Args:
         x: A character vector of chromosome labels (e.g., 'chr1', 'CHRX', '2').
@@ -173,11 +173,12 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             self$qtl_target_allele_key <- args$qtl_target_allele_key
             self$ld_manifest <- args$ld_manifest
             self$ld_manifest_path <- paste0(self$ld_dir, args$ld_manifest)
+            self$ld_panel_note <- args$ld_panel_note
 
             # Parameters
             self$drop_ambiguous <- args$drop_ambiguous
             self$window_bp <- args$window_bp
-            self$min_overlap <- args$min_overlap
+            self$abf_min_overlap <- args$min_overlap
             self$susie_min_snps <- args$susie_min_snps
             self$pp_h4_threshold <- args$pp_h4_threshold
             self$coloc_cred_coverage <- args$coloc_cred_coverage
@@ -191,16 +192,23 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 p12 = args$coloc_prior_p12
             )
 
+            # Locus Keys
+            self$locus_id_key <- args$locus_id_key
+            self$locus_left_bound_key <- args$locus_left_bound_key
+            self$locus_right_bound_key <- args$locus_right_bound_key
+            self$locus_ld_key <- args$locus_ld_key
+            self$locus_bim_key <- args$locus_bim_key
+
             # Standardized Column Keys
-            self.standardized_variant_id_key <- args$standardized_variant_id_key
-            self.standardized_chr_key <- args$standardized_chr_key
-            self.standardized_pos_key <- args$standardized_pos_key
-            self.standardized_effect_allele_key <- args$standardized_effect_allele_key
-            self.standardized_non_effect_allele_key <- args$standardized_non_effect_allele_key
-            self.standardized_beta_key <- args$standardized_beta_key
-            self.standardized_var_beta_key <- args$standardized_var_beta_key
-            self.standardized_se_key <- args$standardized_se_key
-            self.standardized_sdy_key <- args$standardized_sdy_key
+            self$standardized_variant_id_key <- args$standardized_variant_id_key
+            self$standardized_chr_key <- args$standardized_chr_key
+            self$standardized_pos_key <- args$standardized_pos_key
+            self$standardized_effect_allele_key <- args$standardized_effect_allele_key
+            self$standardized_non_effect_allele_key <- args$standardized_non_effect_allele_key
+            self$standardized_beta_key <- args$standardized_beta_key
+            self$standardized_var_beta_key <- args$standardized_var_beta_key
+            self$standardized_se_key <- args$standardized_se_key
+            self$standardized_sdy_key <- args$standardized_sdy_key
         }
 
         read_ld <- function(ld_path, bim_path) {
@@ -444,7 +452,8 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
             # Return the SuSiE result
             S
-        },
+        }
+
 
         run_susie_coloc <- function(self, gwas_susie_fit, qtl_susie_fit, gwas_stratum, qtl_stratum, locus, ld, gene_id, gene_name, n_overlap, n_gwas_ld, n_eqtl_ld, n_gwas_signals, n_eqtl_signals, top_gwas_variant, top_gwas_pval, lead_eqtl_id, lead_eqtl_p, full_path) {
             """
@@ -455,7 +464,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 qtl_susie_fit: The SuSiE fit result for the QTL dataset.
                 gwas_stratum: The stratum identifier for the GWAS dataset.
                 qtl_stratum: The stratum identifier for the QTL dataset.
-                locus: A list containing locus information (e.g., LOCUS_ID, CHR_STR, START, END).
+                locus: A list containing locus information (e.g., LOCUS_ID, self$standardized_chr_key, self$locus_left_bound_key, self$locus_right_bound_key).
                 ld: A list containing LD information (e.g., status, e_same).
                 gene_id: The gene identifier for the QTL dataset.
                 gene_name: The gene name for the QTL dataset.
@@ -497,11 +506,11 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                         
                         # Write the colocalization summary results to the specified file path in a streaming manner, appending to the file if it already exists
                         .stream_write(tibble(
-                            gwas_stratum = gwas_stratum, qtl_stratum = qtl_stratum, locus_id = locus$LOCUS_ID,
-                            is_mhc = .is_mhc_locus(locus$CHR_STR, locus$START, locus$END),
+                            gwas_stratum = gwas_stratum, qtl_stratum = qtl_stratum, locus_id = locus$self$locus_id_key,
+                            is_mhc = .is_mhc_locus(locus$self$standardized_chr_key, locus$self$locus_left_bound_key, locus$self$locus_right_bound_key),
                             ld_status = ld$status,
                             same_ld_panel_for_both = isTRUE(ld$e_same),
-                            ld_panel_note = LD_PANEL_NOTE,
+                            ld_panel_note = self$ld_panel_note,
                             gene_id = gene_id, gene_name = gene_name, method = "susie",
                             idx1 = coloc_summary$idx1[result_index] %||% NA, idx2 = coloc_summary$idx2[result_index] %||% NA,
                             hit1 = as.character(coloc_summary$hit1[result_index]), hit2 = as.character(coloc_summary$hit2[result_index]),
@@ -521,10 +530,108 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
                         # Set the wrote_any flag to TRUE to indicate that results have been written
                         wrote_any <- TRUE
+                        }
                     }
                 }
             }
-            
-        }
+
+
+            # Run coloc.abf fallback
+            run_coloc_abf_fallback <- function(self, gwas_table, qtl_table, gwas_N, gwas_s, qtl_N, qtl_sdY) {
+                """
+                Runs coloc.abf analysis as a fallback method for colocalization between GWAS and QTL datasets, filtering for shared SNPs and handling errors.
+
+                Args:
+                    gwas_table: A data frame containing the GWAS dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
+                    qtl_table: A data frame containing the QTL dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
+                    gwas_N: An integer representing the sample size for the GWAS dataset.
+                    gwas_s: An optional numeric vector representing the standard errors of the beta estimates for the GWAS dataset.
+                    qtl_N: An integer representing the sample size for the QTL dataset.
+                    qtl_sdY: An optional numeric value representing the standard deviation of the trait for the QTL dataset.
+
+                Returns:
+                    A list containing:
+                        - n: The number of shared SNPs between the GWAS and QTL datasets.
+                        - PP: A numeric vector of posterior probabilities for hypotheses H0 to H4.
+                        - top: The SNP with the highest posterior probability for hypothesis H4.
+                    Returns NULL if there are fewer than the minimum overlap required for ABF analysis or if there are issues with the coloc.abf analysis.
+                """
+                # Join the GWAS and QTL tables on the SNP column, filtering for finite beta and variance values
+                shared <- inner_join(
+                    gwas_table %>% transmute(snp = self$standardized_variant_id_key, gwas_beta = self$standardized_beta_key, gwas_variance = self$standardized_se_key^2, gwas_maf = self$standardized_maf_key),
+                    qtl_table %>% transmute(snp = self$standardized_variant_id_key, qtl_beta = self$standardized_beta_key, qtl_variance = self$standardized_se_key^2, qtl_maf = self$standardized_maf_key),
+                    by = "snp"
+                ) %>% filter(is.finite(gwas_beta), gwas_variance > 0, is.finite(qtl_beta), qtl_variance > 0)
+
+                # Check if the number of shared SNPs is less than the minimum overlap required for ABF analysis, and return NULL if so
+                if (nrow(shared) < self$abf_min_overlap) return(NULL)
+
+                # Collapse duplicate SNPs by calculating the weighted average of beta and variance for both GWAS and QTL datasets
+                if (any(duplicated(shared$snp))) {
+                    shared <- shared %>% group_by(snp) %>% summarise(
+                    gwas_beta = sum(gwas_beta/gwas_variance)/sum(1/gwas_variance), gwas_variance = 1/sum(1/gwas_variance),
+                    qtl_beta = sum(qtl_beta/qtl_variance)/sum(1/qtl_variance), qtl_variance = 1/sum(1/qtl_variance),
+                    gwas_maf = mean(gwas_maf, na.rm = TRUE), qtl_maf = mean(qtl_maf, na.rm = TRUE), .groups = "drop")
+                }
+
+                # Prepare the datasets for coloc.abf analysis, including beta, variance of beta, sample size, case fraction, type, and MAF for both GWAS and QTL datasets
+                d1 <- list(snp = shared$snp, beta = shared$gwas_beta, varbeta = shared$gwas_variance,
+                            N = gwas_N, s = gwas_s, type = "cc",
+                            MAF = ifelse(is.finite(shared$gwas_maf), shared$gwas_maf, 0.5))
+                d2 <- list(snp = shared$snp, beta = shared$qtl_beta, varbeta = shared$qtl_variance,
+                            N = qtl_N, type = "quant", sdY = qtl_sdY,
+                            MAF = ifelse(is.finite(shared$qtl_maf), shared$qtl_maf, 0.5))
+
+                # Run coloc.abf analysis with the prepared datasets and specified priors, handling any errors
+                coloc_result <- tryCatch(coloc.abf(d1, d2, p1 = self$coloc_priors$p1, p2 = self$coloc_priors$p2, p12 = self$coloc_priors$p12),
+                                error = function(e) NULL)
+
+                # Check if the coloc result is NULL and return NULL if it is
+                if (is.null(coloc_result)) return(NULL)
+
+                # Extract the summary from the coloc result and initialize the top SNP variable
+                s <- coloc_result$summary
+
+                # Determine the top SNP with the highest posterior probability for hypothesis H4, if available
+                top <- NA_character_
+                if (!is.null(coloc_result$results) && "SNP.PP.H4" %in% names(coloc_result$results)) {
+                    tr <- coloc_result$results %>% arrange(desc(SNP.PP.H4)) %>% slice(1)
+                    if (nrow(tr)) top <- as.character(tr$snp)
+                }
+
+                # Return a list containing the number of shared SNPs, posterior probabilities for hypotheses H0 to H4, and the top SNP
+                list(n = nrow(shared),
+                    PP = c(s["PP.H0.abf"], s["PP.H1.abf"], s["PP.H2.abf"], s["PP.H3.abf"], s["PP.H4.abf"]),
+                    top = top)
+            }
+
+            process_locus <- function(self, locus, gwas_sub, gwas_stratum, gwas_N, gwas_s, qtl_sub, qtl_stratum, qtl_N, qtl_s, qtl_sdY){
+
+
+                # Filter the GWAS and QTL datasets to include only variants within the specified locus boundaries (chromosome and position range)
+                locus_gwas <- gwas_sub %>% filter(
+                    self$standardized_chr_key == locus[[self$standardized_chr_key]],
+                    self$standardized_pos_key >= locus[[self$locus_left_bound_key]],
+                    self$standardized_pos_key <= locus[[self$locus_right_bound_key]]
+                )
+                locus_qtl <- qtl_sub %>% filter(
+                    self$standardized_chr_key == locus[[self$standardized_chr_key]],
+                    self$standardized_pos_key >= locus[[self$locus_left_bound_key]],
+                    self$standardized_pos_key <= locus[[self$locus_right_bound_key]]
+                )
+
+                # Count the number of variants in the filtered GWAS and QTL datasets, skipping the locus if either dataset has no variants
+                n_gwas = nrow(locus_gwas)
+                n_qtl = nrow(locus_qtl)
+                .log("%s | %s | %s: GWAS=%s eQTL=%s", gwas_stratum, qtl_stratum, locus$self$locus_id_key, format(n_gwas, big.mark = ","), format(n_qtl, big.mark = ","))
+                if (!n_gwas || !n_qtl) next
+
+                # Load the LD matrix for the locus using the read_ld function, and log the status of the LD loading
+                ld <- self$read_ld(ld_path = locus$self$locus_ld_key, bim_path = locus$self$locus_bim_key)
+
+                # Build datasets for coloc analysis using the build_dataset function, and log the number of SNPs in each dataset
+                gwas_dataset <- self$build_dataset(locus_gwas, ld, type = "cc", N = gwas_N, s = gwas_s)
+                qtl_dataset <- self$build_dataset(locus_qtl, ld, type = "quant", N = qtl_N, sdY = qtl_sdY)
+            }
+        )
     )
-)
