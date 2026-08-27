@@ -1,3 +1,5 @@
+#!/usr/bin/env Rscript
+
 # Imports
 
 suppressPackageStartupMessages({
@@ -16,16 +18,15 @@ suppressPackageStartupMessages({
 # ------------------------------ Helper Function Definitions -------------------------------
 
 .load_table <- function(path){
-    """
-    Loads a table from a specified file path, automatically detecting the file format based on the file extension.
+    #
+    # Loads a table from a specified file path, automatically detecting the file format based on the file extension.
 
-    Args:
-        path: The file path to load the table from.
+    # Args:
+    #     path: The file path to load the table from.
 
-    Returns:
-        A data frame containing the loaded table.
-
-    """
+    # Returns:
+    #     A data frame containing the loaded table.
+    
     # Check if the file exists
     if (!file.exists(path)) {
         stop(sprintf("File not found: %s", path))
@@ -54,68 +55,64 @@ suppressPackageStartupMessages({
 
 
 .log <- function(...) {
-    """
-    Logs a message with a timestamp to both the console and a log file.
-
-    Args:
-        ...: The message to log, which can be formatted using sprintf-style formatting.
     
-    Returns:
-        None. The function prints the message to the console and appends it to a log file.
+    # Logs a message with a timestamp to both the console and a log file.
 
-    """
+    # Args:
+    #     ...: The message to log, which can be formatted using sprintf-style formatting.
+    
+    # Returns:
+    #     None. The function prints the message to the console and appends it to a log file.
+    
     # Format the message with a timestamp and write it to both the console and the log file
-    msg <- paste0(format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z"), " | ", sprintf(...))
-    cat(msg, "\n"); write(msg, file = log_file, append = TRUE)
+    msg <- sprintf(paste0(format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z"), " | ", sprintf(...)))
+    cat(msg, "\n", file = stderr())
 }
 
 
 .norm_chr <- function(x) {
-    """
-    Standardizes chromosome labels by converting them to uppercase and ensuring they self$manifest_left_bound_key with 'chr'.
 
-    Args:
-        x: A character vector of chromosome labels (e.g., 'chr1', 'CHRX', '2').
+    # Standardizes chromosome labels by converting them to uppercase and ensuring they self$manifest_left_bound_key with 'chr'.
+
+    # Args:
+    #     x: A character vector of chromosome labels (e.g., 'chr1', 'CHRX', '2').
     
-    Returns:
-        A character vector of standardized chromosome labels (e.g., 'chr1', 'chrX', 'chr2').
+    # Returns:
+    #     A character vector of standardized chromosome labels (e.g., 'chr1', 'chrX', 'chr2').
 
-    """
     return(ifelse(grepl("^chr", x, ignore.case = TRUE), substr(x, 4, nchar(x)), x))
 }
 
 
 .add_variant_id <- function(chr, pos, a1, a2) {
-    """
-    Constructs a variant ID for a genetic variant based on chromosome, position, and alleles.
+    
+    # Constructs a variant ID for a genetic variant based on chromosome, position, and alleles.
 
-    Args:
-        chr: Chromosome identifier (e.g., 'chr1', 'chrX').
-        pos: Position of the variant on the chromosome (integer).
-        a1: First allele (string).
-        a2: Second allele (string).
+    # Args:
+    #     chr: Chromosome identifier (e.g., 'chr1', 'chrX').
+    #     pos: Position of the variant on the chromosome (integer).
+    #     a1: First allele (string).
+    #     a2: Second allele (string).
 
-    Returns:
-        A string representing the canonical key for the variant in the format 'chr:pos:allele1_allele2'
-
-    """
+    # Returns:
+    #     A string representing the canonical key for the variant in the format 'chr:pos:allele1_allele2'
+    
     # Construct the canonical key using the standardized chromosome, position, and ordered alleles
     return(paste0(.norm_chr(chr), ":", as.integer(pos), ":", a1, ":", a2))
 }
 
 
 .is_ambiguous <- function(a1, a2) {
-    """
-    Checks if a pair of alleles is ambiguous (i.e., A/T or C/G).
+    
+    # Checks if a pair of alleles is ambiguous (i.e., A/T or C/G).
 
-    Args:
-        a1: First allele (string).
-        a2: Second allele (string).
+    # Args:
+    #     a1: First allele (string).
+    #     a2: Second allele (string).
 
-    Returns:
-        TRUE if the allele pair is ambiguous, FALSE otherwise.
-
-    """
+    # Returns:
+    #     TRUE if the allele pair is ambiguous, FALSE otherwise.
+    
     # Construct a string representing the allele pair in uppercase
     p <- paste0(toupper(a1), toupper(a2))
 
@@ -125,17 +122,16 @@ suppressPackageStartupMessages({
 
 
 .stream_write <- function(df, path) {
-    """
-    Writes a data frame to a file in a streaming manner. If the file already exists, it appends the data frame to the existing file without writing column names.
+    
+    # Writes a data frame to a file in a streaming manner. If the file already exists, it appends the data frame to the existing file without writing column names.
 
-    Args:
-        df: The data frame to be written.
-        path: The file path to write the data frame to.
+    # Args:
+    #     df: The data frame to be written.
+    #     path: The file path to write the data frame to.
 
-    Returns:
-        None. The function writes the data frame to the specified file path.
-        
-    """
+    # Returns:
+    #     None. The function writes the data frame to the specified file path.    
+    
     # Use data.table's fwrite function to write the data frame to the specified path
     if (!file.exists(path)) data.table::fwrite(df, path, sep = "\t", quote = FALSE)
     else data.table::fwrite(df, path, sep = "\t", quote = FALSE, append = TRUE, col.names = FALSE)
@@ -143,15 +139,15 @@ suppressPackageStartupMessages({
 
 
 .collapse_keys <- function(D) {
-    """
-    Collapses duplicate SNPs in a data frame by keeping the one with the smallest p-value (largest absolute z-score).
+    
+    # Collapses duplicate SNPs in a data frame by keeping the one with the smallest p-value (largest absolute z-score).
 
-    Args:
-        D: A data frame containing SNP information, including 'snp', 'beta', 'varbeta', 'MAF', 'EA', 'OA', and 'POS' columns.
+    # Args:
+    #     D: A data frame containing SNP information, including 'snp', 'beta', 'varbeta', 'MAF', 'EA', 'OA', and 'POS' columns.
 
-    Returns:
-        A data frame with duplicate SNPs collapsed, keeping the one with the smallest p-value (largest absolute z-score).
-    """
+    # Returns:
+    #     A data frame with duplicate SNPs collapsed, keeping the one with the smallest p-value (largest absolute z-score).
+    
     return(D %>%
         dplyr::filter(is.finite(beta), is.finite(varbeta), varbeta > 0) %>%
         dplyr::group_by(snp) %>%
@@ -174,26 +170,70 @@ suppressPackageStartupMessages({
 ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
     public = list(
 
+        # Fields
+        output_dir = NULL,
+        ld_dir = NULL,
+        gwas = NULL,
+        gwas_path = NULL,
+        gwas_target_allele_key = NULL,
+        gwas_strata_key = NULL,
+        gwas_sample_size = NULL,
+        gwas_s = NULL,
+        qtl = NULL,
+        qtl_path = NULL,
+        qtl_target_allele_key = NULL,
+        qtl_strata_key = NULL,
+        qtl_sample_size = NULL,
+        qtl_sdY = NULL,
+        ld_manifest = NULL,
+        ld_manifest_path = NULL,
+        ld_panel_note = NULL,
+        drop_ambiguous = NULL,
+        min_overlap = NULL,
+        susie_min_snps = NULL,
+        pp_h4_threshold = NULL,
+        cred_coverage = NULL,
+        susie_max_iter = NULL,
+        susie_l = NULL,
+        susie_repeat_until_converged = NULL,
+        coloc_priors = NULL,
+        manifest_locus_id_key = NULL,
+        manifest_left_bound_key = NULL,
+        manifest_right_bound_key = NULL,
+        manifest_ld_key = NULL,
+        manifest_bim_key = NULL,
+        standardized_variant_id_key = NULL,
+        standardized_chr_key = NULL,
+        standardized_pos_key = NULL,
+        standardized_gene_id_key = NULL,
+        standardized_effect_allele_key = NULL,
+        standardized_non_effect_allele_key = NULL,
+        standardized_p_key = NULL,
+        standardized_beta_key = NULL,
+        standardized_var_beta_key = NULL,
+        standardized_se_key = NULL,
+        standardized_maf_key = NULL,
+
         # Initialize the class with paths and column keys
         initialize = function(args) {
 
             # Inputs/Outputs
             self$output_dir <- args$output_dir
-            self$ld_dir <- paste0(self$output_dir, args$ld_dir)
+            self$ld_dir <- file.path(self$output_dir, args$ld_dir)
             self$gwas <- args$gwas
-            self$gwas_path <- paste0(self$output_dir, args$gwas)
+            self$gwas_path <- file.path(self$output_dir, args$gwas)
             self$gwas_target_allele_key <- args$gwas_target_allele_key
             self$gwas_strata_key <- args$gwas_strata_key
             self$gwas_sample_size <- args$gwas_sample_size
             self$gwas_s <- args$gwas_case_fraction
             self$qtl <- args$qtl
-            self$qtl_path <- paste0(self$output_dir, args$qtl)
+            self$qtl_path <- file.path(self$output_dir, args$qtl)
             self$qtl_target_allele_key <- args$qtl_target_allele_key
             self$qtl_strata_key <- args$qtl_strata_key
             self$qtl_sample_size <- args$qtl_sample_size
             self$qtl_sdY <- args$qtl_sdY
             self$ld_manifest <- args$ld_manifest
-            self$ld_manifest_path <- paste0(self$ld_dir, args$ld_manifest)
+            self$ld_manifest_path <- file.path(self$ld_dir, args$ld_manifest)
             self$ld_panel_note <- args$ld_panel_note
 
             # Parameters
@@ -230,24 +270,23 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             self$standardized_var_beta_key <- args$standardized_var_beta_key
             self$standardized_se_key <- args$standardized_se_key
             self$standardized_maf_key <- args$standardized_maf_key
-        }
+        },
 
-        read_ld <- function(ld_path, bim_path) {
-            """
-            Reads LD matrix and BIM file, aligns them, and returns a list containing the LD matrix and allele information.
+        read_ld = function(ld_path, bim_path) {
+            
+            # Reads LD matrix and BIM file, aligns them, and returns a list containing the LD matrix and allele information.
 
-            Args:
-                ld_path: Path to the LD matrix file.
-                bim_path: Path to the BIM file.
+            # Args:
+            #     ld_path: Path to the LD matrix file.
+            #     bim_path: Path to the BIM file.
 
-            Returns:
-                A list containing:
-                    - M: The LD matrix with canonical key dimnames.
-                    - A1: A named vector of the allele the LD is counted on.
-                    - A2: A named vector of the other allele.
-                Returns NULL if the LD or BIM files are missing or if there are issues with reading them
-
-            """
+            # Returns:
+            #     A list containing:
+            #         - M: The LD matrix with canonical key dimnames.
+            #         - A1: A named vector of the allele the LD is counted on.
+            #         - A2: A named vector of the other allele.
+            #     Returns NULL if the LD or BIM files are missing or if there are issues with reading them
+            
             # Check if the LD and BIM files exist
             if (is.na(ld_path) || is.na(bim_path) ||
                 !file.exists(ld_path) || !file.exists(bim_path)) {
@@ -301,22 +340,22 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
             # Return the list containing the LD matrix and allele information
             return(ld)
-        }
+        },
 
 
-        align_ld <- function(ld, snps, target_allele) {
-            """
-            Aligns the LD matrix to a target allele for each variant, subsets it to the specified SNPs, and returns the aligned LD matrix.
-
-            Args:
-                ld: A list containing the LD matrix and allele information (output from read_ld).
-                snps: A character vector of SNPs to subset the LD matrix to.
-                target_allele: A named vector of target alleles for each SNP (names should match the SNPs) in which the datasets beta is on (ie. GWAS effect allele / GTEx ALT).
+        align_ld = function(ld, snps, target_allele) {
             
-            Returns:
-                A numeric matrix representing the aligned LD matrix for the specified SNPs, with rows and columns corresponding to the SNPs in the order they appear in the `snps` vector.
-                Returns NULL if there are fewer than 2 SNPs present or if the LD matrix is NULL.
-            """
+            # Aligns the LD matrix to a target allele for each variant, subsets it to the specified SNPs, and returns the aligned LD matrix.
+
+            # Args:
+            #     ld: A list containing the LD matrix and allele information (output from read_ld).
+            #     snps: A character vector of SNPs to subset the LD matrix to.
+            #     target_allele: A named vector of target alleles for each SNP (names should match the SNPs) in which the datasets beta is on (ie. GWAS effect allele / GTEx ALT).
+            
+            # Returns:
+            #     A numeric matrix representing the aligned LD matrix for the specified SNPs, with rows and columns corresponding to the SNPs in the order they appear in the `snps` vector.
+            #     Returns NULL if there are fewer than 2 SNPs present or if the LD matrix is NULL.
+            
             # Check if the LD matrix is NULL and return NULL if it is
             if (is.null(ld)) return(NULL)
 
@@ -357,28 +396,27 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
             # Return the aligned LD matrix
             return(M)
-        }
+        },
 
 
-        build_dataset <- function(tbl, ld, type, N, s = NULL, sdY = NULL, target_allele_key) {
-            """
-            Builds a dataset for coloc analysis by standardizing column names, collapsing duplicate SNPs, filtering ambiguous SNPs, aligning the LD matrix, and returning a list containing the dataset and the number of SNPs.
+        build_dataset = function(tbl, ld, type, N, s = NULL, sdY = NULL, target_allele_key) {
+            
+            # Builds a dataset for coloc analysis by standardizing column names, collapsing duplicate SNPs, filtering ambiguous SNPs, aligning the LD matrix, and returning a list containing the dataset and the number of SNPs.
 
-            Args:
-                tbl: A data frame containing the input data with standardized column names for SNPs, beta, variance of beta, MAF, effect allele, non-effect allele, and position.
-                ld: A list containing the LD matrix and allele information (output from read_ld).
-                type: A string indicating the type of dataset (e.g., 'quant' for quantitative traits).
-                N: An integer representing the sample size.
-                s: An optional numeric vector representing the standard errors of the beta estimates.
-                sdY: An optional numeric value representing the standard deviation of the trait.
+            # Args:
+            #     tbl: A data frame containing the input data with standardized column names for SNPs, beta, variance of beta, MAF, effect allele, non-effect allele, and position.
+            #     ld: A list containing the LD matrix and allele information (output from read_ld).
+            #     type: A string indicating the type of dataset (e.g., 'quant' for quantitative traits).
+            #     N: An integer representing the sample size.
+            #     s: An optional numeric vector representing the standard errors of the beta estimates.
+            #     sdY: An optional numeric value representing the standard deviation of the trait.
 
-            Returns:
-                A list containing:
-                    - D: A list representing the dataset for coloc analysis, including beta, variance of beta, SNPs, positions, type, sample size, and aligned LD matrix.
-                    - n: An integer representing the number of SNPs in the dataset.
-                Returns NULL if there are fewer than 2 SNPs in the dataset or if the aligned LD matrix is NULL.
-
-            """
+            # Returns:
+            #     A list containing:
+            #         - D: A list representing the dataset for coloc analysis, including beta, variance of beta, SNPs, positions, type, sample size, and aligned LD matrix.
+            #         - n: An integer representing the number of SNPs in the dataset.
+            #     Returns NULL if there are fewer than 2 SNPs in the dataset or if the aligned LD matrix is NULL.
+            
             # Mutate the input table to create a new data frame D0 with standardized column names for SNPs, beta, variance of beta, MAF, effect allele, non-effect allele, and position
             D0 <- tbl %>% transmute(
                 snp = .data[[self$standardized_variant_id_key]],
@@ -398,7 +436,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             if (nrow(D0) < 2) return(NULL)
 
             # Align the LD matrix to the effect allele and subset it to the SNPs in D0
-            if (self$target_allele_key == self$standardized_effect_allele_key) {
+            if (target_allele_key == self$standardized_effect_allele_key) {
                 LD <- self$align_ld(ld, D0$snp, setNames(D0$EA, D0$snp))
             }
             else if (self$target_allele_key == self$standardized_non_effect_allele_key) {
@@ -447,23 +485,22 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
             # Return the list containing the dataset and the number of SNPs
             return(dataset)
-        }
+        },
 
 
-        credset_for_row <- function(self, coloc_result, row_k) {
-            """
-            Extracts the credible set size and top SNP for a specific row in the coloc result.
+        credset_for_row = function(coloc_result, row_k) {
+            
+            # Extracts the credible set size and top SNP for a specific row in the coloc result.
 
-            Args:
-                coloc_result: The result object from the coloc analysis.
-                row_k: The index of the row to extract credible set information from.
+            # Args:
+            #     coloc_result: The result object from the coloc analysis.
+            #     row_k: The index of the row to extract credible set information from.
 
-            Returns:
-                A list containing:
-                    - size: The size of the credible set (number of SNPs).
-                    - top: The SNP with the highest posterior probability in the credible set.
-
-            """
+            # Returns:
+            #     A list containing:
+            #         - size: The size of the credible set (number of SNPs).
+            #         - top: The SNP with the highest posterior probability in the credible set.
+            
             # Initialize output with NA values
             out <- list(size = NA_integer_, top = NA_character_)
 
@@ -500,21 +537,20 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             
             # Return the output containing the credible set size and top SNP
             return(out)
-        }
+        },
 
 
-        safe_runsusie <- function(D, label) {
-            """
-            Safely runs the SuSiE algorithm on a given dataset, handling errors and logging the results.
+        safe_runsusie = function(D, label) {
+            
+            # Safely runs the SuSiE algorithm on a given dataset, handling errors and logging the results.
 
-            Args:
-                D: A list representing the dataset for SuSiE analysis, including beta, variance of beta, SNPs, positions, type, sample size, and aligned LD matrix.
-                label: A string label for logging purposes.
+            # Args:
+            #     D: A list representing the dataset for SuSiE analysis, including beta, variance of beta, SNPs, positions, type, sample size, and aligned LD matrix.
+            #     label: A string label for logging purposes.
 
-            Returns:
-                The result of the SuSiE analysis if successful, or NULL if there was an error
-
-            """
+            # Returns:
+            #     The result of the SuSiE analysis if successful, or NULL if there was an error
+            
             # Check if the dataset is valid for SuSiE analysis using the check_dataset function. If it fails, log the error and return NULL.
             if (!is.null(check_dataset(D, req = "LD"))) {     # NULL means OK
                 .log("  [%s] check_dataset failed (LD) -> skip SuSiE", label); return(NULL)
@@ -541,35 +577,35 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
             # Return the SuSiE result
             return(S)
-        }
+        },
 
 
-        run_susie_coloc <- function(self, gwas_susie_fit, qtl_susie_fit, gwas_stratum, qtl_stratum, locus, ld, gene_id, n_overlap, n_gwas_ld, n_eqtl_ld, n_gwas_signals, n_eqtl_signals, top_gwas_variant, top_gwas_pval, lead_eqtl_id, lead_eqtl_p, full_path) {
-            """
-            Runs SuSiE colocalization analysis between GWAS and QTL datasets, logs the results, and writes the summary to a specified file.
+        run_susie_coloc = function(gwas_susie_fit, qtl_susie_fit, gwas_stratum, qtl_stratum, locus, ld, gene_id, n_overlap, n_gwas_ld, n_eqtl_ld, n_gwas_signals, n_eqtl_signals, top_gwas_variant, top_gwas_pval, lead_eqtl_id, lead_eqtl_p, susie_full_fp) {
+            
+            # Runs SuSiE colocalization analysis between GWAS and QTL datasets, logs the results, and writes the summary to a specified file.
 
-            Args:
-                gwas_susie_fit: The SuSiE fit result for the GWAS dataset.
-                qtl_susie_fit: The SuSiE fit result for the QTL dataset.
-                gwas_stratum: The stratum identifier for the GWAS dataset.
-                qtl_stratum: The stratum identifier for the QTL dataset.
-                locus: A list containing locus information (e.g., LOCUS_ID, self$standardized_chr_key, self$manifest_left_bound_key, self$manifest_right_bound_key).
-                ld: A list containing LD information (e.g., status, e_same).
-                gene_id: The gene identifier for the QTL dataset.
-                n_overlap: The number of overlapping SNPs between the GWAS and QTL datasets.
-                n_gwas_ld: The number of SNPs in LD for the GWAS dataset.
-                n_eqtl_ld: The number of SNPs in LD for the QTL dataset.
-                n_gwas_signals: The number of signals in the GWAS dataset.
-                n_eqtl_signals: The number of signals in the QTL dataset.
-                top_gwas_variant: The top variant in the GWAS dataset.
-                top_gwas_pval: The p-value of the top variant in the GWAS dataset.
-                lead_eqtl_id: The lead eQTL identifier.
-                lead_eqtl_p: The p-value of the lead eQTL.
-                full_path: The file path to write the colocalization summary results.
+            # Args:
+            #     gwas_susie_fit: The SuSiE fit result for the GWAS dataset.
+            #     qtl_susie_fit: The SuSiE fit result for the QTL dataset.
+            #     gwas_stratum: The stratum identifier for the GWAS dataset.
+            #     qtl_stratum: The stratum identifier for the QTL dataset.
+            #     locus: A list containing locus information (e.g., LOCUS_ID, self$standardized_chr_key, self$manifest_left_bound_key, self$manifest_right_bound_key).
+            #     ld: A list containing LD information (e.g., status, e_same).
+            #     gene_id: The gene identifier for the QTL dataset.
+            #     n_overlap: The number of overlapping SNPs between the GWAS and QTL datasets.
+            #     n_gwas_ld: The number of SNPs in LD for the GWAS dataset.
+            #     n_eqtl_ld: The number of SNPs in LD for the QTL dataset.
+            #     n_gwas_signals: The number of signals in the GWAS dataset.
+            #     n_eqtl_signals: The number of signals in the QTL dataset.
+            #     top_gwas_variant: The top variant in the GWAS dataset.
+            #     top_gwas_pval: The p-value of the top variant in the GWAS dataset.
+            #     lead_eqtl_id: The lead eQTL identifier.
+            #     lead_eqtl_p: The p-value of the lead eQTL.
+            #     susie_full_fp: The file path to write the colocalization summary results.
 
-            Returns:
-                A logical value indicating whether any results were written to the specified file (TRUE if results were written, FALSE otherwise).
-            """
+            # Returns:
+            #     A logical value indicating whether any results were written to the specified file (TRUE if results were written, FALSE otherwise).
+            
             .log("Running SuSiE colocalization...")
             
             # Check if both GWAS and QTL SuSiE fits are not NULL before proceeding with colocalization analysis
@@ -589,7 +625,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                     for (result_index in seq_len(nrow(coloc_summary))) {
 
                         # Extract the credible set information for the current row of the coloc summary
-                        credible_set <- credset_for_row(coloc_result, result_index)
+                        credible_set <- self$credset_for_row(coloc_result, result_index)
                         
                         # Write the colocalization summary results to the specified file path in a streaming manner, appending to the file if it already exists
                         .stream_write(tibble(
@@ -611,41 +647,41 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                             cred_set_size_95 = credible_set$size, top_snp_h4 = credible_set$top,
                             top_gwas_variant = top_gwas_variant, top_gwas_pval = top_gwas_pval,
                             lead_eqtl_id = lead_eqtl_id, lead_eqtl_p = lead_eqtl_p
-                        ), full_path)
+                        ), susie_full_fp)
 
                         # Update the bucket counter for SuSiE pairs and set the wrote_any flag to TRUE
                         bucket["susie_pairs"] <- bucket["susie_pairs"] + 1L
 
                         # Set the wrote_any flag to TRUE to indicate that results have been written
                         wrote_any <- TRUE
-                        }
                     }
                 }
+            }
 
                 # Return the wrote_any flag to indicate whether any results were written to the specified file
                 return(wrote_any)
-            }
+        },
 
 
-        run_coloc_abf_fallback <- function(self, gwas_table, qtl_table, gwas_sample_size, gwas_s, qtl_sample_size, qtl_sdY) {
-            """
-            Runs coloc.abf analysis as a fallback method for colocalization between GWAS and QTL datasets, filtering for shared SNPs and handling errors.
+        run_coloc_abf_fallback = function(gwas_table, qtl_table, gwas_sample_size, gwas_s, qtl_sample_size, qtl_sdY) {
+            
+            # Runs coloc.abf analysis as a fallback method for colocalization between GWAS and QTL datasets, filtering for shared SNPs and handling errors.
 
-            Args:
-                gwas_table: A data frame containing the GWAS dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
-                qtl_table: A data frame containing the QTL dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
-                gwas_sample_size: An integer representing the sample size for the GWAS dataset.
-                gwas_s: An optional numeric vector representing the standard errors of the beta estimates for the GWAS dataset.
-                qtl_sample_size: An integer representing the sample size for the QTL dataset.
-                qtl_sdY: An optional numeric value representing the standard deviation of the trait for the QTL dataset.
+            # Args:
+            #     gwas_table: A data frame containing the GWAS dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
+            #     qtl_table: A data frame containing the QTL dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
+            #     gwas_sample_size: An integer representing the sample size for the GWAS dataset.
+            #     gwas_s: An optional numeric vector representing the standard errors of the beta estimates for the GWAS dataset.
+            #     qtl_sample_size: An integer representing the sample size for the QTL dataset.
+            #     qtl_sdY: An optional numeric value representing the standard deviation of the trait for the QTL dataset.
 
-            Returns:
-                A list containing:
-                    - n: The number of shared SNPs between the GWAS and QTL datasets.
-                    - PP: A numeric vector of posterior probabilities for hypotheses H0 to H4.
-                    - top: The SNP with the highest posterior probability for hypothesis H4.
-                Returns NULL if there are fewer than the minimum overlap required for ABF analysis or if there are issues with the coloc.abf analysis.
-            """
+            # Returns:
+            #     A list containing:
+            #         - n: The number of shared SNPs between the GWAS and QTL datasets.
+            #         - PP: A numeric vector of posterior probabilities for hypotheses H0 to H4.
+            #         - top: The SNP with the highest posterior probability for hypothesis H4.
+            #     Returns NULL if there are fewer than the minimum overlap required for ABF analysis or if there are issues with the coloc.abf analysis.
+            
             # Join the GWAS and QTL tables on the SNP column, filtering for finite beta and variance values
             shared <- inner_join(
                 gwas_table %>% transmute(snp = .data[[self$standardized_variant_id_key]], gwas_beta = .data[[self$standardized_beta_key]], gwas_variance = .data[[self$standardized_se_key]]^2, gwas_maf = .data[[self$standardized_maf_key]]),
@@ -696,30 +732,29 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
             # Return the ABF result
             return(abf_result)
-        }
+        },
 
 
-        process_locus <- function(self, locus, gwas_sub, gwas_stratum, gwas_sample_size, gwas_s, qtl_sub, qtl_stratum, qtl_sample_size, qtl_sdY, susie_low_overlap_fp, susie_full_fp){
-            """
-            Processes a single locus for colocalization analysis between GWAS and QTL datasets, filtering variants, running SuSiE, and recording results.
-
-            Args:
-                locus: A list containing locus information (e.g., LOCUS_ID, self$standardized_chr_key, self$manifest_left_bound_key, self$manifest_right_bound_key).
-                gwas_sub: A data frame containing the GWAS dataset for the current stratum.
-                gwas_stratum: The stratum identifier for the GWAS dataset.
-                gwas_sample_size: An integer representing the sample size for the GWAS dataset.
-                gwas_s: An optional numeric vector representing the standard errors of the beta estimates for the GWAS dataset.
-                qtl_sub: A data frame containing the QTL dataset for the current stratum.
-                qtl_stratum: The stratum identifier for the QTL dataset.
-                qtl_sample_size: An integer representing the sample size for the QTL dataset.
-                qtl_sdY: An optional numeric value representing the standard deviation of the trait for the QTL dataset.
-                susie_low_overlap_fp: The file path to write results with low overlap between GWAS and QTL datasets.
-                susie_full_fp: The file path to write full colocalization results.
-
-            Returns:
-                locus_result: A tibble containing the results of the colocalization analysis for the current locus, including stratum identifiers, locus ID, gene ID, LD status, number of overlapping SNPs, number of signals, and posterior probabilities for hypotheses H0 to H4.
+        process_locus = function(locus, gwas_sub, gwas_stratum, gwas_sample_size, gwas_s, qtl_sub, qtl_stratum, qtl_sample_size, qtl_sdY, susie_low_overlap_fp, susie_full_fp){
             
-            """
+            # Processes a single locus for colocalization analysis between GWAS and QTL datasets, filtering variants, running SuSiE, and recording results.
+
+            # Args:
+            #     locus: A list containing locus information (e.g., LOCUS_ID, self$standardized_chr_key, self$manifest_left_bound_key, self$manifest_right_bound_key).
+            #     gwas_sub: A data frame containing the GWAS dataset for the current stratum.
+            #     gwas_stratum: The stratum identifier for the GWAS dataset.
+            #     gwas_sample_size: An integer representing the sample size for the GWAS dataset.
+            #     gwas_s: An optional numeric vector representing the standard errors of the beta estimates for the GWAS dataset.
+            #     qtl_sub: A data frame containing the QTL dataset for the current stratum.
+            #     qtl_stratum: The stratum identifier for the QTL dataset.
+            #     qtl_sample_size: An integer representing the sample size for the QTL dataset.
+            #     qtl_sdY: An optional numeric value representing the standard deviation of the trait for the QTL dataset.
+            #     susie_low_overlap_fp: The file path to write results with low overlap between GWAS and QTL datasets.
+            #     susie_full_fp: The file path to write full colocalization results.
+
+            # Returns:
+            #     locus_result: A tibble containing the results of the colocalization analysis for the current locus, including stratum identifiers, locus ID, gene ID, LD status, number of overlapping SNPs, number of signals, and posterior probabilities for hypotheses H0 to H4.
+            
             .log("Processing locus %s for GWAS stratum %s and QTL stratum %s", locus[[self$manifest_locus_id_key]], gwas_stratum, qtl_stratum)
 
             # Filter the GWAS and QTL datasets to include only variants within the specified locus boundaries (chromosome and position range)
@@ -738,7 +773,11 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             n_gwas = nrow(locus_gwas)
             n_qtl = nrow(locus_qtl)
             .log("%s | %s | %s: GWAS=%s eQTL=%s", gwas_stratum, qtl_stratum, locus[[self$manifest_locus_id_key]], format(n_gwas, big.mark = ","), format(n_qtl, big.mark = ","))
-            if (!n_gwas || !n_qtl) next
+            if (!n_gwas || !n_qtl) {
+                .log("Skipping locus %s: insufficient variants (GWAS=%s, QTL=%s)", 
+                    locus[[self$manifest_locus_id_key]], n_gwas, n_qtl)
+                return(NULL)
+            }
 
             # Load the LD matrix for the locus using the read_ld function, and log the status of the LD loading
             ld <- self$read_ld(ld_path = locus[[self$manifest_ld_key]], bim_path = locus[[self$manifest_bim_key]])
@@ -807,7 +846,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
                 if (!is.null(gene_qtl_dataset) && is.null(gene_qtl_dataset$too_few) && !is.null(gene_qtl_dataset$D)) {
                     n_qtl_ld <- gene_qtl_dataset$n
-                    qtl_susie_fit <- self$safe_runsusie(gene_qtl_dataset$D, sprintf("%s eQTL %s/%s", gwas_stratum, locus$self$manifest_locus_id_key, gene_id))
+                    qtl_susie_fit <- self$safe_runsusie(gene_qtl_dataset$D, sprintf("%s eQTL %s/%s", gwas_stratum, locus[[self$manifest_locus_id_key]], gene_id))
                     n_qtl_signals <- tryCatch(length(qtl_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
                 }
 
@@ -881,7 +920,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 ld_status = ld$status,
                 same_ld_panel_for_both = isTRUE(ld$e_same),
                 n_gwas = n_gwas, 
-                n_eqtl = n_eqtl,
+                n_qtl = n_qtl,
                 n_gwas_ld = n_gwas_ld %||% NA_integer_,
                 n_gwas_signals = n_gwas_signals,
                 best_overlap = best_overlap_locus
@@ -890,34 +929,43 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Return the locus result tibble summarizing the results of the colocalization analysis for the current locus
             .log("Finished processing locus %s for GWAS stratum %s and QTL stratum %s", locus[[self$manifest_locus_id_key]], gwas_stratum, qtl_stratum)
             return(locus_result)
-        }
+        },
 
 
-        run_coloc_analysis <- function(self) {
-            """
-            Runs colocalization analysis between GWAS and QTL datasets for specified loci, processing each locus and recording results.
+        run_coloc_analysis = function() {
 
-            Args:
-                gwas_data: A data frame containing the GWAS dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
-                qtl_data: A data frame containing the QTL dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
-                loci_data: A data frame containing locus information, including locus ID, chromosome, left bound, right bound, and LD file paths.
+            # Runs colocalization analysis between GWAS and QTL datasets for specified loci, processing each locus and recording results.
 
-            Returns:
-                A tibble summarizing the results of the colocalization analysis across all loci and strata.
-            """
+            # Args:
+            #     gwas_data: A data frame containing the GWAS dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
+            #     qtl_data: A data frame containing the QTL dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
+            #     loci_data: A data frame containing locus information, including locus ID, chromosome, left bound, right bound, and LD file paths.
+
+            # Returns:
+            #     A tibble summarizing the results of the colocalization analysis across all loci and strata.
+
             # Load GWAS, QTL, and loci data from the specified file paths
-            gwas_data <- .load_table(self$gwas_fp)
-            qtl_data <- .load_table(self$qtl_fp)
+            .log("Loading GWAS Summary Statistics...")
+            gwas_data <- .load_table(self$gwas_path)
+            .log("Loading QTL Summary Statistics...")
+            qtl_data <- .load_table(self$qtl_path)
+            .log("Loading LD Manifest...")
             loci_data <- .load_table(self$ld_manifest_path)
 
             # Add strata columns and fill values if necessary for GWAS and QTL datasets
-            if (!self$gwas_strata_key %in% colnames(gwas_data)) {
+            if (is.null(self$gwas_strata_key)) {
+                self$gwas_strata_key <- "GWAS_Strata"
+                gwas_data[[self$gwas_strata_key]] <- "Full"
+            } else if (!self$gwas_strata_key %in% colnames(gwas_data)) {
                 gwas_data[[self$gwas_strata_key]] <- "Full"
             } else if (gwas_data[[self$gwas_strata_key]] %>% is.na() %>% any()) {
                 gwas_data[[self$gwas_strata_key]] <- gwas_data[[self$gwas_strata_key]] %>% replace_na("Full")
             }
 
-            if (!self$qtl_strata_key %in% colnames(qtl_data)) {
+            if (is.null(self$qtl_strata_key)) {
+                self$qtl_strata_key <- "QTL_Strata"
+                qtl_data[[self$qtl_strata_key]] <- "Bulk"
+            } else if (!self$qtl_strata_key %in% colnames(qtl_data)) {
                 qtl_data[[self$qtl_strata_key]] <- "Bulk"
             } else if (qtl_data[[self$qtl_strata_key]] %>% is.na() %>% any()) {
                 qtl_data[[self$qtl_strata_key]] <- qtl_data[[self$qtl_strata_key]] %>% replace_na("Bulk")
@@ -926,40 +974,46 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Initialize an empty list to store locus results
             locus_results <- list()
 
+            # Initialize a bucket to keep track of the number of results written for each method (SuSiE pairs, ABF fallback, and low overlap)
+            bucket <- c(susie_pairs = 0L, abf_fallback = 0L, low = 0L)
+
             # Extract unique strata identifiers from the GWAS and QTL datasets
             gwas_strata <- unique(gwas_data[[self$gwas_strata_key]])
             qtl_strata <- unique(qtl_data[[self$qtl_strata_key]])
 
             # Loop through each combination of GWAS and QTL strata
             for (gwas_stratum in gwas_strata) {
-                susie_low_overlap_fp <- sprintf("%s/%s_coloc_susie_low_overlap.tsv", self$output_dir, gwas_stratum)
-                susie_full_fp <- sprintf("%s/%s_coloc_susie_full.tsv", self$output_dir, gwas_stratum)
+                susie_low_overlap_fp <- file.path(self$output_dir, sprintf("%s_coloc_susie_low_overlap.tsv", gwas_stratum))
+                susie_full_fp <- file.path(self$output_dir, sprintf("%s_coloc_susie_full.tsv", gwas_stratum))
                 for (qtl_stratum in qtl_strata) {
                     .log("Running colocalization analysis for GWAS stratum %s and QTL stratum %s", gwas_stratum, qtl_stratum)
 
                     # Filter the GWAS and QTL datasets for the current strata
                     gwas_sub <- gwas_data %>% filter(!!sym(self$gwas_strata_key) == gwas_stratum)
                     qtl_sub <- qtl_data %>% filter(!!sym(self$qtl_strata_key) == qtl_stratum)
-
+                    
                     # Loop through each locus and process it
-                    for (locus in loci_data) {
+                    for (i in seq_len(nrow(loci_data))) {
+                        locus <- loci_data[i, ]
                         locus_result <- self$process_locus(locus, gwas_sub, gwas_stratum, self$gwas_sample_size, self$gwas_s,
                                                             qtl_sub, qtl_stratum, self$qtl_sample_size, self$qtl_sdY, susie_low_overlap_fp, susie_full_fp)
-                        locus_results <- append(locus_results, list(locus_result))
+                        if (!is.null(locus_result)) {
+                            locus_results <- append(locus_results, list(locus_result))
+                        }
                     }
                 }
 
                 # Write summaries
-                full_df <- if (file.exists(full_path)) fread(full_path) else data.table()
+                full_df <- if (file.exists(susie_full_fp)) fread(susie_full_fp) else data.table()
                 strong  <- if (nrow(full_df)) as_tibble(full_df) %>%
                     filter(!is.na(PP.H4), PP.H4 >= self$pp_h4_threshold, n_snps_overlap >= self$min_overlap) else tibble()
-                write_tsv(strong, file.path(out_dir, paste0(tolower(gwas_stratum), "_coloc_susie_strong.tsv")))
+                write_tsv(strong, file.path(self$output_dir, paste0(tolower(gwas_stratum), "_coloc_susie_strong.tsv")))
 
-                locus_tbl <- if (length(locus_rows)) bind_rows(locus_rows) else tibble()
-                write_tsv(locus_tbl %>% arrange(locus_id),
-                            file.path(out_dir, paste0(tolower(gwas_stratum), "_locus_overlap_summary.tsv")))
+                locus_tbl <- if (length(locus_results)) bind_rows(locus_results) else tibble()
+                write_tsv(locus_tbl %>% arrange(self$manifest_locus_id_key),
+                            file.path(self$output_dir, paste0(tolower(gwas_stratum), "_locus_overlap_summary.tsv")))
 
-                report_path <- file.path(out_dir, paste0(tolower(gwas_stratum), "_summary_report.txt"))
+                report_path <- file.path(self$output_dir, paste0(tolower(gwas_stratum), "_summary_report.txt"))
                 report <- c(
                     sprintf("coloc.susie summary report — %s", gwas_stratum),
                     sprintf("Generated: %s", format(Sys.time())),
@@ -970,7 +1024,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                     sprintf("Gene/tissue below %.5f: %d", self$min_overlap, bucket["low"]),
                     sprintf("Strong (PP.H4 >= %.2f): %d rows", self$pp_h4_threshold, nrow(strong)),
                     "",
-                    sprintf("Priors: p1 = %g, p2 = %g, p12 = %g", self$priors$p1, self$priors$p2, self$priors$p12),
+                    sprintf("Priors: p1 = %g, p2 = %g, p12 = %g", self$coloc_priors$p1, self$coloc_priors$p2, self$coloc_priors$p12),
                     sprintf("SuSiE: coverage = %.2f, max_iter = %d, L = %d", self$cred_coverage, self$susie_max_iter, self$susie_l),
                     sprintf("MIN OVERLAP = %d, MIN SNPS SUSIE = %d, DROP AMBIGUOUS = %s", self$min_overlap, self$susie_min_snps, self$drop_ambiguous),
                     sprintf("QTL sdY = %g", self$qtl_sdY),
@@ -993,13 +1047,13 @@ if (!interactive()) {
     parser$add_argument("--output_dir", required = TRUE, help = "Path of directory to save output files")
     parser$add_argument("--ld_dir", default = "ld", help = "Name of directory containing LD matrices and BIM files (optional). Should be located in the output_dir. Default is 'ld'.")
     parser$add_argument("--gwas", required = TRUE, help = "File name of the GWAS summary statistics file")
-    parser$add_argument("--gwas_target_allele", default = "EFFECT", help = "Column name for the target allele in the GWAS summary statistics file (optional). Default is 'EFFECT'.")
-    parser$add_argument("--gwas_strata_key", default = NA, help = "Column name for the GWAS strata in the GWAS summary statistics file (optional). Default is 'STRATUM'.")
+    parser$add_argument("--gwas_target_allele_key", default = "EFFECT", help = "Column name for the target allele in the GWAS summary statistics file (optional). Default is 'EFFECT'.")
+    parser$add_argument("--gwas_strata_key", default = NULL, help = "Column name for the GWAS strata in the GWAS summary statistics file (optional). Default is 'STRATUM'.")
     parser$add_argument("--gwas_sample_size", required = TRUE, help = "Sample size for the GWAS dataset")
     parser$add_argument("--gwas_case_fraction", required = TRUE, help = "Case fraction for the GWAS dataset.")
     parser$add_argument("--qtl", required = TRUE, help = "File name of the QTL summary statistics file")
-    parser$add_argument("--qtl_target_allele", default = "EFFECT", help = "Column name for the target allele in the QTL summary statistics file (optional). Default is 'EFFECT'.")
-    parser$add_argument("--qtl_strata_key", default = NA, help = "Column name for the QTL strata in the QTL summary statistics file (optional). Default is 'STRATUM'.")
+    parser$add_argument("--qtl_target_allele_key", default = "EFFECT", help = "Column name for the target allele in the QTL summary statistics file (optional). Default is 'EFFECT'.")
+    parser$add_argument("--qtl_strata_key", default = NULL, help = "Column name for the QTL strata in the QTL summary statistics file (optional). Default is 'STRATUM'.")
     parser$add_argument("--qtl_sample_size", required = TRUE, help = "Sample size for the QTL dataset")
     parser$add_argument("--qtl_sdY", default = 1, help = "Standard deviation of the trait for the QTL dataset (optional). Default is 1.")
     parser$add_argument("--ld_manifest", default = "ld_manifest.tsv", help = "File name of the ld manifest file containing locus information (optional). Default is 'ld_manifest.tsv'.")
@@ -1021,18 +1075,19 @@ if (!interactive()) {
     parser$add_argument("--manifest_bim_key", default = "BIM", help = "Column name for the BIM file path in the LD manifest file (optional). Default is 'BIM'.")
     parser$add_argument("--standardized_variant_id_key", default = "VAR", help = "Column name for the standardized variant ID in the GWAS and QTL summary statistics files (optional). Default is 'VAR'.")
     parser$add_argument("--standardized_chr_key", default = "CHR", help = "Column name for the standardized chromosome in the GWAS and QTL summary statistics files (optional). Default is 'CHR'.")
-    parser$add_argument("--standardized_pos_key", default = "POS", help = "Column name for the standardized position in the GWAS and QTL summary statistics files (optional). Default is 'POS'.")
+    parser$add_argument("--standardized_pos_key", default = "BP", help = "Column name for the standardized position in the GWAS and QTL summary statistics files (optional). Default is 'POS'.")
     parser$add_argument("--standardized_gene_id_key", default = "GENE_ID", help = "Column name for the standardized gene ID in the QTL summary statistics file (optional). Default is 'GENE_ID'.")
     parser$add_argument("--standardized_non_effect_allele_key", default = "NON_EFFECT", help = "Column name for the standardized reference allele in the GWAS and QTL summary statistics files (optional). Default is 'NON_EFFECT'.")
     parser$add_argument("--standardized_effect_allele_key", default = "EFFECT", help = "Column name for the standardized effect allele in the GWAS and QTL summary statistics files (optional). Default is 'EFFECT'.")
     parser$add_argument("--standardized_p_key", default = "P", help = "Column name for the standardized p-value in the GWAS and QTL summary statistics files (optional). Default is 'P'.")
     parser$add_argument("--standardized_beta_key", default = "BETA", help = "Column name for the standardized beta in the GWAS and QTL summary statistics files (optional). Default is 'BETA'.")
-    parser$add_argument("--standardized_var_beta_key", default = "VAR_BETA", help = "Column name for the standardized variance of beta in the GWAS and QTL summary statistics files (optional). Default is 'VAR_BETA'.")
+    parser$add_argument("--standardized_var_beta_key", default = "VARBETA", help = "Column name for the standardized variance of beta in the GWAS and QTL summary statistics files (optional). Default is 'VAR_BETA'.")
     parser$add_argument("--standardized_se_key", default = "SE", help = "Column name for the standardized standard error in the GWAS and QTL summary statistics files (optional). Default is 'SE'.")
     parser$add_argument("--standardized_maf_key", default = "MAF", help = "Column name for the standardized minor allele frequency in the GWAS and QTL summary statistics files (optional). Default is 'MAF'.")
 
 
-    # Create an instance of the ColocAnalyzer class and run the colocalization analysis
-    analyzer <- ColocAnalyzer$new(args)
+    # Create an instance of the ColocalizationAnalyzer class and run the colocalization analysis
+    args <- parser$parse_args()
+    analyzer <- ColocalizationAnalyzer$new(args)
     analyzer$run_coloc_analysis()
 }
