@@ -292,7 +292,7 @@ class SumStatsTransformer:
         self.ss_rsid_key = args.ss_rsid_key
         self.ss_non_effect_allele_key = args.ss_non_effect_allele_key
         self.ss_effect_allele_key = args.ss_effect_allele_key
-        self.ss_n_key = args.ss_n_key
+        self.ss_n = args.ss_n
         self.ss_maf_key = args.ss_maf_key
         self.ss_mac_key = args.ss_mac_key
         self.ss_p_key = args.ss_p_key
@@ -300,9 +300,8 @@ class SumStatsTransformer:
         self.ss_se_key = args.ss_se_key
         self.ss_beta_key = args.ss_beta_key
         self.ss_var_beta_key = args.ss_var_beta_key
-        self.ss_sdy_key = args.ss_sdy_key
         self.ss_gene_id_key = args.ss_gene_id_key
-        self.ss_tissue_key = args.ss_tissue_key
+        self.ss_strata_key = args.ss_strata_key
         self.target_genome_build = "hg38"
         self.annotated_df = pd.DataFrame()
         self.dbSNP_rsid_key = "rsID_dbsnp"
@@ -325,10 +324,8 @@ class SumStatsTransformer:
         self.standardized_se_key = args.standardized_se_key
         self.standardized_beta_key = args.standardized_beta_key
         self.standardized_var_beta_key = args.standardized_var_beta_key
-        self.standardized_sdy_key = args.standardized_sdy_key
         self.standardized_statistic_key = args.standardized_statistic_key
-        self.standardized_tissue_key = args.standardized_tissue_key
-        
+        self.standardized_strata_key = args.standardized_strata_key
 
     def perform_liftover(self):
         """
@@ -503,7 +500,7 @@ class SumStatsTransformer:
 
     def calculate_missing_summary_statistics(self):
         """
-        Calculate missing summary statistics (N, statistic, SE, beta, var(beta), SDY, P)
+        Calculate missing summary statistics (N, statistic, SE, beta, var(beta), P)
         from available columns, filling in defaults where possible.
 
         Returns:
@@ -511,7 +508,6 @@ class SumStatsTransformer:
 
         """
         # Extract numeric series for relevant summary statistics columns
-        s_n = numeric_series(self.annotated_df, self.ss_n_key)
         s_maf = numeric_series(self.annotated_df, self.ss_maf_key)
         s_mac = numeric_series(self.annotated_df, self.ss_mac_key)
         s_p = numeric_series(self.annotated_df, self.ss_p_key)
@@ -519,13 +515,6 @@ class SumStatsTransformer:
         s_se = numeric_series(self.annotated_df, self.ss_se_key)
         s_beta = numeric_series(self.annotated_df, self.ss_beta_key)
         s_var_beta = numeric_series(self.annotated_df, self.ss_var_beta_key)
-
-        # Calculate N from MAC and MAF if both are available and MAF is not zero
-        if self.ss_n_key is None:
-            s_n = pd.Series(np.nan, index=self.annotated_df.index)
-            m = s_mac.notna() & s_maf.notna() & (s_maf != 0)
-            s_n.loc[m] = (s_mac / (2 * s_maf))[m]
-            self.annotated_df[self.standardized_n_key] = s_n
 
         # Calculate statistic from P-value if P-value is available and within (0, 1)
         if self.ss_statistic_key is None:
@@ -539,8 +528,8 @@ class SumStatsTransformer:
             s_se = pd.Series(np.nan, index=self.annotated_df.index)
             m = s_beta.notna() & s_statistic.notna() & (s_statistic != 0)
             s_se.loc[m] = (s_beta.abs() / s_statistic)[m]
-            m = s_se.isna() & s_maf.notna() & s_n.notna() & (s_n > 0) & s_statistic.notna() & (s_statistic != 0)
-            s_se.loc[m] = 1 / np.sqrt(2 * s_maf * (1 - s_maf) * (s_n + s_statistic**2))[m]
+            m = s_se.isna() & s_maf.notna() & (self.ss_n > 0) & s_statistic.notna() & (s_statistic != 0)
+            s_se.loc[m] = 1 / np.sqrt(2 * s_maf * (1 - s_maf) * (self.ss_n + s_statistic**2))[m]
             self.annotated_df[self.standardized_se_key] = s_se
 
         # Calculate beta from statistic and SE if both are available
@@ -556,13 +545,6 @@ class SumStatsTransformer:
             m = s_se.notna() & (s_se != 0)
             s_var_beta.loc[m] = (s_se ** 2)[m]
             self.annotated_df[self.standardized_var_beta_key] = s_var_beta
-
-        # Calculate SDY from variance of beta, N, and MAF if all are available and N is greater than zero
-        if not self.ss_sdy_key:
-            sdy = pd.Series(np.nan, index=self.annotated_df.index)
-            m = s_maf.notna() & s_n.notna() & (s_n > 0)
-            sdy.loc[m] = np.sqrt(s_var_beta * s_n * 2 * s_maf * (1 - s_maf))[m]
-            self.annotated_df[self.standardized_sdy_key] = sdy
 
         # Calculate P-value from statistic if statistic is available and not zero, using a two-tailed test
         if not self.ss_p_key:
@@ -635,8 +617,8 @@ class SumStatsTransformer:
 
         """
         # Ensure tissue column exists
-        if not self.ss_tissue_key:
-            self.annotated_df[self.standardized_tissue_key] = "NA"
+        if not self.ss_strata_key:
+            self.annotated_df[self.standardized_strata_key] = "NA"
 
         # Ensure gene ID column exists
         if not self.ss_gene_id_key:
@@ -654,11 +636,9 @@ class SumStatsTransformer:
             self.standardized_p_key: _coalesce(self.annotated_df, self.ss_p_key, self.standardized_p_key),
             self.standardized_beta_key: _coalesce(self.annotated_df, self.ss_beta_key, self.standardized_beta_key),
             self.standardized_var_beta_key: _coalesce(self.annotated_df, self.ss_var_beta_key, self.standardized_var_beta_key),
-            self.standardized_sdy_key: _coalesce(self.annotated_df, self.ss_sdy_key, self.standardized_sdy_key),
             self.standardized_se_key: _coalesce(self.annotated_df, self.ss_se_key, self.standardized_se_key),
             self.standardized_maf_key: _coalesce(self.annotated_df, self.ss_maf_key, self.dbSNP_maf_key),
-            self.standardized_n_key: _coalesce(self.annotated_df, self.ss_n_key, self.standardized_n_key),
-            self.standardized_tissue_key: _coalesce(self.annotated_df, self.ss_tissue_key, self.standardized_tissue_key),
+            self.standardized_strata_key: _coalesce(self.annotated_df, self.ss_strata_key, self.standardized_strata_key),
             self.dbSNP_validation_key: _coalesce(self.annotated_df, self.dbSNP_validation_key, None),
         })
 
@@ -674,11 +654,10 @@ class SumStatsTransformer:
             self.standardized_p_key,
             self.standardized_beta_key,
             self.standardized_var_beta_key,
-            self.standardized_sdy_key,
             self.standardized_se_key,
             self.standardized_maf_key,
             self.standardized_n_key,
-            self.standardized_tissue_key,
+            self.standardized_strata_key,
             self.dbSNP_validation_key
         ]
 
@@ -813,13 +792,12 @@ if __name__ == "__main__":
     parser.add_argument("--ss_p_key", type=str, default=None, help="Column name for p-value (optional).")
     parser.add_argument("--ss_beta_key", type=str, default=None, help="Column name for beta coefficient (optional).")
     parser.add_argument("--ss_se_key", type=str, default=None, help="Column name for standard error (optional).")
-    parser.add_argument("--ss_n_key", type=str, default=None, help="Column name for sample size (optional).")
+    parser.add_argument("--ss_n", type=int, required=True, help="Sample size.")
     parser.add_argument("--ss_statistic_key", type=str, default=None, help="Column name for test statistic (optional).")
     parser.add_argument("--ss_maf_key", type=str, default=None, help="Column name for minor allele frequency (optional).")
     parser.add_argument("--ss_mac_key", type=str, default=None, help="Column name for minor allele count (optional).")
     parser.add_argument("--ss_var_beta_key", type=str, default=None, help="Column name for variance of beta (optional).")
-    parser.add_argument("--ss_sdy_key", type=str, default=None, help="Column name for standard deviation of Y (optional).")
-    parser.add_argument("--ss_tissue_key", type=str, default=None, help="Column name for tissue label (optional).")
+    parser.add_argument("--ss_strata_key", type=str, default=None, help="Column name for strata label (optional). Ex. tissue, region, sex, etc.")
     parser.add_argument("--standardized_chr_key", type=str, default="CHR", help="Standardized column name for chromosome.")
     parser.add_argument("--standardized_pos_key", type=str, default="BP", help="Standardized column name for position.")
     parser.add_argument("--standardized_rsid_key", type=str, default="SNP", help="Standardized column name for rsID.")
@@ -834,8 +812,7 @@ if __name__ == "__main__":
     parser.add_argument("--standardized_statistic_key", type=str, default="STAT", help="Standardized column name for test statistic.")
     parser.add_argument("--standardized_maf_key", type=str, default="MAF", help="Standardized column name for minor allele frequency.")
     parser.add_argument("--standardized_var_beta_key", type=str, default="VARBETA", help="Standardized column name for variance of beta.")
-    parser.add_argument("--standardized_sdy_key", type=str, default="SDY", help="Standardized column name for standard deviation of Y.")
-    parser.add_argument("--standardized_tissue_key", type=str, default="TISSUE", help="Standardized column name for tissue label.")
+    parser.add_argument("--standardized_strata_key", type=str, default="STRATA", help="Standardized column name for strata label.")
     parser.add_argument("--loci_left_bound_key", type=str, default="LEFT_500KB", help="Column name for left bound of loci.")
     parser.add_argument("--loci_right_bound_key", type=str, default="RIGHT_500KB", help="Column name for right bound of loci.")
 

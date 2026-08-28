@@ -263,7 +263,9 @@ class CoverageCheck:
 
         """
         self.out_ld_dir = args.out_ld_dir
+        print(f"Loading LD manifest from ...")
         self.ld_manifest = load_input_data(Path(self.out_ld_dir, args.ld_manifest), 0)
+        print(f"Loaded LD manifest with {len(self.ld_manifest)} loci from {Path(self.out_ld_dir, args.ld_manifest)}")
         self.standardized_locus_id_key = args.standardized_locus_id_key
         self.standardized_left_bound_key = args.standardized_left_bound_key
         self.standardized_right_bound_key = args.standardized_right_bound_key
@@ -278,9 +280,13 @@ class CoverageCheck:
         self.bim_cm_key = "cm"
         self.bim_missing_key = "missing_bim"
         self.bim_source_path_key = "source_path"
+        print(f"Loading GWAS Summary Statistics ...")
         self.gwas = load_input_data(Path(args.gwas_fp), 0)
+        print(f"Loaded GWAS data with {len(self.gwas)} variants from {Path(args.gwas_fp)}")
         self.gwas_strata_key = args.gwas_strata_key
+        print(f"Loading QTL Summary Statistics ...")
         self.qtl = load_input_data(Path(args.qtl_fp), 0)
+        print(f"Loaded QTL data with {len(self.qtl)} variants from {Path(args.qtl_fp)}")
         self.qtl_strata_key = args.qtl_strata_key
         self.high_overlap_min = args.high_overlap_min
         self.medium_overlap_min = args.medium_overlap_min

@@ -3,9 +3,10 @@ import shlex
 import subprocess
 import shutil
 import argparse
-from pathlib import Path
 import pandas as pd
 import numpy as np #type: ignore (silences pylance warning)
+from pathlib import Path
+from typing import Optional
 from helpers import load_input_data, normalize_chromosome, numeric_series
 
 # ------------------------- Helper Function Definitions -------------------------
@@ -57,7 +58,18 @@ def _run(cmd: list) -> int:
 
 #------------------------- Main Function Definitions -------------------------
 
-def compute_ld_for_locus(bfile: str, ld_output_dir: str, tag: str, row: pd.Series, standardized_chr_key: str, standardized_left_bound_key: str, standardized_right_bound_key: str, maf_min: float, geno_max: float) -> int:
+def compute_ld_for_locus(
+        bfile: str,
+        ld_output_dir: str,
+        tag: str,
+        row: pd.Series,
+        standardized_chr_key: str,
+        standardized_left_bound_key: str,
+        standardized_right_bound_key: str,
+        maf_min: float,
+        geno_max: float,
+        ancestry_keep_file: str
+    ) -> int:
     """
     Extracts one locus from `bfile` and writes a signed-r square LD matrix, returning the number of variants in the locus. The .gwas.* naming is kept for downstream compatibility
 
@@ -71,6 +83,7 @@ def compute_ld_for_locus(bfile: str, ld_output_dir: str, tag: str, row: pd.Serie
         standardized_right_bound_key (str): Column name for right boundary in the loci DataFrame.
         maf_min (float): Minimum minor allele frequency for filtering.
         geno_max (float): Maximum missing genotype rate for filtering.
+        ancestry_keep_file (Optional[str]): Path to a file containing sample IDs to keep for ancestry filtering (default: None).
 
     Produces:
       {tag}.gwas.ld: signed r LD matrix from PLINK --r square
@@ -83,8 +96,8 @@ def compute_ld_for_locus(bfile: str, ld_output_dir: str, tag: str, row: pd.Serie
     region = str(Path(ld_output_dir) / f"{tag}.gwas.region")
     ldpref = str(Path(ld_output_dir) / f"{tag}.gwas")
 
-    # Extract locus
-    rc = _run([
+    # Build the PLINK command to extract the locus region with specified filters
+    extract_cmd = [
         "plink",
         "--bfile", bfile,
         "--chr", row[standardized_chr_key],
@@ -95,11 +108,19 @@ def compute_ld_for_locus(bfile: str, ld_output_dir: str, tag: str, row: pd.Serie
         "--keep-allele-order",
         "--make-bed",
         "--out", region
-    ])
+    ]
+
+    # Add ancestry filter if provided
+    if ancestry_keep_file != "NA" and Path(ancestry_keep_file).exists():
+        extract_cmd.insert(-2, "--keep")
+        extract_cmd.insert(-2, ancestry_keep_file)
+
+    # Run the PLINK command to extract the locus region
+    rc = _run(extract_cmd)
     if rc != 0:
         return -1
 
-    # Compute signed LD matrix
+    # Build the PLINK command to compute signed LD matrix
     ld_cmd = [
         "plink",
         "--bfile", region,
@@ -107,11 +128,17 @@ def compute_ld_for_locus(bfile: str, ld_output_dir: str, tag: str, row: pd.Serie
         "--r", "square",
         "--out", ldpref
     ]
+
+    # Check if the .bim file exists to determine if the region is empty
     bim = Path(region + ".bim")
     if not bim.exists():
         print(f"    region empty for {tag}")
         return 0
+
+    # Count the number of variants in the .bim file
     nvar = sum(1 for _ in open(bim))
+
+    # Run the PLINK command to compute the LD matrix
     rc = _run(ld_cmd)
     if rc != 0:
         return -1
@@ -135,6 +162,7 @@ def main(args: argparse.Namespace):
 
     """
     # Load loci from the input file
+    print(f"Loading loci from {args.loci_file}...")
     loci = load_input_data(Path(args.loci_file), header_lines=args.header_lines)
     
     # Create the LD output directory if it doesn't exist
@@ -144,6 +172,10 @@ def main(args: argparse.Namespace):
     # Initialize an empty list to hold manifest entries
     manifest = []
 
+    # Print ancestry keep file information
+    if args.ancestry_keep_file != "NA":
+        print(f"Using ancestry keep file: {args.ancestry_keep_file}")
+
     # Loop through each locus and compute LD
     for _, row in loci.iterrows():
         # Create a filesystem-safe tag for the locus ID
@@ -151,7 +183,7 @@ def main(args: argparse.Namespace):
         print(f"\n[{row[args.standardized_locus_id_key]}]")
 
         # Compute LD for the locus and get the number of variants
-        n = compute_ld_for_locus(args.ref_bfile, args.ld_output_dir, tag, row, args.standardized_chr_key, args.standardized_left_bound_key, args.standardized_right_bound_key, args.maf_min, args.geno_max)
+        n = compute_ld_for_locus(args.ref_bfile, args.ld_output_dir, tag, row, args.standardized_chr_key, args.standardized_left_bound_key, args.standardized_right_bound_key, args.maf_min, args.geno_max, args.ancestry_keep_file)
 
         # Append the locus information and LD file paths to the manifest
         manifest.append({
@@ -193,6 +225,7 @@ if __name__ == "__main__":
     parser.add_argument("--header_lines", type=int, default=0, help="Number of header lines to skip in the loci file.")
     parser.add_argument("--standardized_locus_id_key", default="LOCUS_ID", help="Column name for locus IDs in the loci file.")
     parser.add_argument("--ref_bfile", required=True, help="Path to the reference PLINK binary fileset (prefix).")
+    parser.add_argument("--ancestry_keep_file", default="NA", help="Path to the ancestry keep file.")
     parser.add_argument("--ld_panel", required=True, help="Name of the LD reference panel (e.g., 1000G_EUR).")
     parser.add_argument("--ld_output_dir", required=True, help="Directory to write output LD matrices and manifest.")
     parser.add_argument("--ld_manifest", default="ld_manifest.tsv", help="Name of the LD manifest file to be created (default: ld_manifest.tsv).")

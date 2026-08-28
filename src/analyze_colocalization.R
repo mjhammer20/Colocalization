@@ -187,7 +187,6 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
         qtl_sdY = NULL,
         ld_manifest = NULL,
         ld_manifest_path = NULL,
-        ld_panel_note = NULL,
         drop_ambiguous = NULL,
         min_overlap = NULL,
         susie_min_snps = NULL,
@@ -202,6 +201,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
         manifest_right_bound_key = NULL,
         manifest_ld_key = NULL,
         manifest_bim_key = NULL,
+        manifest_note_key = NULL,
         standardized_variant_id_key = NULL,
         standardized_chr_key = NULL,
         standardized_pos_key = NULL,
@@ -213,6 +213,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
         standardized_var_beta_key = NULL,
         standardized_se_key = NULL,
         standardized_maf_key = NULL,
+        bucket = NULL,
 
         # Initialize the class with paths and column keys
         initialize = function(args) {
@@ -234,7 +235,6 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             self$qtl_sdY <- args$qtl_sdY
             self$ld_manifest <- args$ld_manifest
             self$ld_manifest_path <- file.path(self$ld_dir, args$ld_manifest)
-            self$ld_panel_note <- args$ld_panel_note
 
             # Parameters
             self$drop_ambiguous <- args$drop_ambiguous
@@ -257,6 +257,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             self$manifest_right_bound_key <- args$manifest_right_bound_key
             self$manifest_ld_key <- args$manifest_ld_key
             self$manifest_bim_key <- args$manifest_bim_key
+            self$manifest_note_key <- args$manifest_note_key
 
             # Standardized Column Keys
             self$standardized_variant_id_key <- args$standardized_variant_id_key
@@ -270,9 +271,12 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             self$standardized_var_beta_key <- args$standardized_var_beta_key
             self$standardized_se_key <- args$standardized_se_key
             self$standardized_maf_key <- args$standardized_maf_key
+
+            # Tracking
+            self$bucket <- c(susie_pairs = 0L, abf_fallback = 0L, low = 0L)
         },
 
-        read_ld = function(ld_path, bim_path) {
+        read_ld = function(ld_path, bim_path, panel_note) {
             
             # Reads LD matrix and BIM file, aligns them, and returns a list containing the LD matrix and allele information.
 
@@ -336,7 +340,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             M[!is.finite(M)] <- 0
 
             # Create a list containing the LD matrix and allele information
-            ld <- list(M = M, A1 = setNames(a1, keys), A2 = setNames(a2, keys))
+            ld <- list(M = M, A1 = setNames(a1, keys), A2 = setNames(a2, keys), panel_note = panel_note)
 
             # Return the list containing the LD matrix and allele information
             return(ld)
@@ -439,11 +443,11 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             if (target_allele_key == self$standardized_effect_allele_key) {
                 LD <- self$align_ld(ld, D0$snp, setNames(D0$EA, D0$snp))
             }
-            else if (self$target_allele_key == self$standardized_non_effect_allele_key) {
+            else if (target_allele_key == self$standardized_non_effect_allele_key) {
                 LD <- self$align_ld(ld, D0$snp, setNames(D0$OA, D0$snp))
             }
             else {
-                .log("  Unknown target allele key: %s", self$target_allele_key)
+                .log("  Unknown target allele key: %s", target_allele_key)
                 return(NULL)
             }
 
@@ -573,14 +577,17 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             .log("  [%s] SuSiE credible sets: %d", label, ncs %||% 0L)
 
             # Return NULL if there are no credible sets, indicating that there is nothing to colocalize
-            if (is.null(ncs) || ncs < 1) return(NULL)
+            if (is.null(ncs) || ncs < 1) {
+                .log("  [%s] SuSiE has no credible sets -> skip coloc", label)
+                return(NULL)
+            }
 
             # Return the SuSiE result
             return(S)
         },
 
 
-        run_susie_coloc = function(gwas_susie_fit, qtl_susie_fit, gwas_stratum, qtl_stratum, locus, ld, gene_id, n_overlap, n_gwas_ld, n_eqtl_ld, n_gwas_signals, n_eqtl_signals, top_gwas_variant, top_gwas_pval, lead_eqtl_id, lead_eqtl_p, susie_full_fp) {
+        run_susie_coloc = function(gwas_susie_fit, qtl_susie_fit, gwas_stratum, qtl_stratum, locus, ld, gene_id, n_overlap, n_gwas_ld, n_qtl_ld, n_gwas_signals, n_qtl_signals, top_gwas_variant, top_gwas_pval, lead_eqtl_id, lead_eqtl_p, coloc_full_fp) {
             
             # Runs SuSiE colocalization analysis between GWAS and QTL datasets, logs the results, and writes the summary to a specified file.
 
@@ -590,26 +597,29 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             #     gwas_stratum: The stratum identifier for the GWAS dataset.
             #     qtl_stratum: The stratum identifier for the QTL dataset.
             #     locus: A list containing locus information (e.g., LOCUS_ID, self$standardized_chr_key, self$manifest_left_bound_key, self$manifest_right_bound_key).
-            #     ld: A list containing LD information (e.g., status, e_same).
+            #     ld: A list containing LD information.
             #     gene_id: The gene identifier for the QTL dataset.
             #     n_overlap: The number of overlapping SNPs between the GWAS and QTL datasets.
             #     n_gwas_ld: The number of SNPs in LD for the GWAS dataset.
-            #     n_eqtl_ld: The number of SNPs in LD for the QTL dataset.
+            #     n_qtl_ld: The number of SNPs in LD for the QTL dataset.
             #     n_gwas_signals: The number of signals in the GWAS dataset.
-            #     n_eqtl_signals: The number of signals in the QTL dataset.
+            #     n_qtl_signals: The number of signals in the QTL dataset.
             #     top_gwas_variant: The top variant in the GWAS dataset.
             #     top_gwas_pval: The p-value of the top variant in the GWAS dataset.
-            #     lead_eqtl_id: The lead eQTL identifier.
+            #     lead_eqtl_id: The lead QTL identifier.
             #     lead_eqtl_p: The p-value of the lead eQTL.
-            #     susie_full_fp: The file path to write the colocalization summary results.
+            #     coloc_full_fp: The file path to write the colocalization summary results.
 
             # Returns:
             #     A logical value indicating whether any results were written to the specified file (TRUE if results were written, FALSE otherwise).
-            
-            .log("Running SuSiE colocalization...")
+
+            # Initialize a flag to track whether any results were written to the specified file
+            wrote_any <- FALSE 
             
             # Check if both GWAS and QTL SuSiE fits are not NULL before proceeding with colocalization analysis
             if (!is.null(gwas_susie_fit) && !is.null(qtl_susie_fit)) {
+
+                .log("Running SuSiE colocalization...")
                 
                 # Run coloc.susie with the provided GWAS and QTL SuSiE fits, handling any errors
                 coloc_result <- tryCatch(coloc.susie(gwas_susie_fit, qtl_susie_fit, p1 = self$coloc_priors$p1, p2 = self$coloc_priors$p2, p12 = self$coloc_priors$p12),
@@ -630,27 +640,36 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                         # Write the colocalization summary results to the specified file path in a streaming manner, appending to the file if it already exists
                         .stream_write(tibble(
                             !!self$gwas_strata_key := gwas_stratum,
-                            !!self$qtl_strata_key  := qtl_stratum,
-                            !!self$manifest_locus_id_key    := locus[[self$manifest_locus_id_key]],
-                            ld_status = ld$status,
-                            same_ld_panel_for_both = isTRUE(ld$e_same),
-                            ld_panel_note = self$ld_panel_note,
-                            gene_id = gene_id, method = "susie",
-                            idx1 = coloc_summary$idx1[result_index] %||% NA, idx2 = coloc_summary$idx2[result_index] %||% NA,
-                            hit1 = as.character(coloc_summary$hit1[result_index]), hit2 = as.character(coloc_summary$hit2[result_index]),
+                            !!self$qtl_strata_key := qtl_stratum,
+                            !!self$manifest_locus_id_key := locus[[self$manifest_locus_id_key]],
+                            ld_panel_note = locus[[self$manifest_note_key]],
+                            gene_id = gene_id,
+                            method = "susie",
+                            idx1 = coloc_summary$idx1[result_index] %||% NA,
+                            idx2 = coloc_summary$idx2[result_index] %||% NA,
+                            hit1 = as.character(coloc_summary$hit1[result_index]),
+                            hit2 = as.character(coloc_summary$hit2[result_index]),
                             nsnps = coloc_summary$nsnps[result_index] %||% NA_integer_,
-                            PP.H0 = coloc_summary$PP.H0.abf[result_index], PP.H1 = coloc_summary$PP.H1.abf[result_index], PP.H2 = coloc_summary$PP.H2.abf[result_index],
-                            PP.H3 = coloc_summary$PP.H3.abf[result_index], PP.H4 = coloc_summary$PP.H4.abf[result_index],
+                            PP.H0 = coloc_summary$PP.H0.abf[result_index],
+                            PP.H1 = coloc_summary$PP.H1.abf[result_index],
+                            PP.H2 = coloc_summary$PP.H2.abf[result_index],
+                            PP.H3 = coloc_summary$PP.H3.abf[result_index],
+                            PP.H4 = coloc_summary$PP.H4.abf[result_index],
                             n_snps_overlap = n_overlap,
-                            n_gwas_ld = n_gwas_ld, n_eqtl_ld = n_eqtl_ld,
-                            n_gwas_signals = n_gwas_signals, n_eqtl_signals = n_eqtl_signals,
-                            cred_set_size_95 = credible_set$size, top_snp_h4 = credible_set$top,
-                            top_gwas_variant = top_gwas_variant, top_gwas_pval = top_gwas_pval,
-                            lead_eqtl_id = lead_eqtl_id, lead_eqtl_p = lead_eqtl_p
-                        ), susie_full_fp)
+                            n_gwas_ld = n_gwas_ld,
+                            n_qtl_ld = n_qtl_ld,
+                            n_gwas_signals = n_gwas_signals,
+                            n_qtl_signals = n_qtl_signals,
+                            cred_set_size_95 = credible_set$size,
+                            top_snp_h4 = credible_set$top,
+                            top_gwas_variant = top_gwas_variant,
+                            top_gwas_pval = top_gwas_pval,
+                            lead_eqtl_id = lead_eqtl_id,
+                            lead_eqtl_p = lead_eqtl_p
+                        ), coloc_full_fp)
 
                         # Update the bucket counter for SuSiE pairs and set the wrote_any flag to TRUE
-                        bucket["susie_pairs"] <- bucket["susie_pairs"] + 1L
+                        self$bucket["susie_pairs"] <- self$bucket["susie_pairs"] + 1L
 
                         # Set the wrote_any flag to TRUE to indicate that results have been written
                         wrote_any <- TRUE
@@ -674,6 +693,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             #     gwas_s: An optional numeric vector representing the standard errors of the beta estimates for the GWAS dataset.
             #     qtl_sample_size: An integer representing the sample size for the QTL dataset.
             #     qtl_sdY: An optional numeric value representing the standard deviation of the trait for the QTL dataset.
+            #     coloc_full_fp: The file path to write the colocalization summary results.
 
             # Returns:
             #     A list containing:
@@ -682,6 +702,8 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             #         - top: The SNP with the highest posterior probability for hypothesis H4.
             #     Returns NULL if there are fewer than the minimum overlap required for ABF analysis or if there are issues with the coloc.abf analysis.
             
+            .log("Running coloc.abf fallback...")
+
             # Join the GWAS and QTL tables on the SNP column, filtering for finite beta and variance values
             shared <- inner_join(
                 gwas_table %>% transmute(snp = .data[[self$standardized_variant_id_key]], gwas_beta = .data[[self$standardized_beta_key]], gwas_variance = .data[[self$standardized_se_key]]^2, gwas_maf = .data[[self$standardized_maf_key]]),
@@ -726,16 +748,19 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             }
 
             # Create a list containing the number of shared SNPs, posterior probabilities for hypotheses H0 to H4, and the top SNP
-            abf_result <- list(n = nrow(shared),
+            coloc_abf_result <- list(n = nrow(shared),
                 PP = c(s["PP.H0.abf"], s["PP.H1.abf"], s["PP.H2.abf"], s["PP.H3.abf"], s["PP.H4.abf"]),
                 top = top)
 
-            # Return the ABF result
-            return(abf_result)
+            # Set wrote_any to TRUE to indicate that results have been written
+            wrote_any <- TRUE
+
+            # Return the wrote_any flag to indicate whether any results were written to the specified file
+            return(coloc_abf_result) 
         },
 
 
-        process_locus = function(locus, gwas_sub, gwas_stratum, gwas_sample_size, gwas_s, qtl_sub, qtl_stratum, qtl_sample_size, qtl_sdY, susie_low_overlap_fp, susie_full_fp){
+        process_locus = function(locus, gwas_sub, gwas_stratum, gwas_sample_size, gwas_s, qtl_sub, qtl_stratum, qtl_sample_size, qtl_sdY, susie_low_overlap_fp, coloc_full_fp){
             
             # Processes a single locus for colocalization analysis between GWAS and QTL datasets, filtering variants, running SuSiE, and recording results.
 
@@ -750,10 +775,10 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             #     qtl_sample_size: An integer representing the sample size for the QTL dataset.
             #     qtl_sdY: An optional numeric value representing the standard deviation of the trait for the QTL dataset.
             #     susie_low_overlap_fp: The file path to write results with low overlap between GWAS and QTL datasets.
-            #     susie_full_fp: The file path to write full colocalization results.
+            #     coloc_full_fp: The file path to write full colocalization results.
 
             # Returns:
-            #     locus_result: A tibble containing the results of the colocalization analysis for the current locus, including stratum identifiers, locus ID, gene ID, LD status, number of overlapping SNPs, number of signals, and posterior probabilities for hypotheses H0 to H4.
+            #     locus_result: A tibble containing the results of the colocalization analysis for the current locus, including stratum identifiers, locus ID, gene ID, number of overlapping SNPs, number of signals, and posterior probabilities for hypotheses H0 to H4.
             
             .log("Processing locus %s for GWAS stratum %s and QTL stratum %s", locus[[self$manifest_locus_id_key]], gwas_stratum, qtl_stratum)
 
@@ -772,15 +797,18 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Count the number of variants in the filtered GWAS and QTL datasets, skipping the locus if either dataset has no variants
             n_gwas = nrow(locus_gwas)
             n_qtl = nrow(locus_qtl)
-            .log("%s | %s | %s: GWAS=%s eQTL=%s", gwas_stratum, qtl_stratum, locus[[self$manifest_locus_id_key]], format(n_gwas, big.mark = ","), format(n_qtl, big.mark = ","))
+            .log("%s | %s | %s: GWAS=%s QTL=%s", gwas_stratum, qtl_stratum, locus[[self$manifest_locus_id_key]], format(n_gwas, big.mark = ","), format(n_qtl, big.mark = ","))
             if (!n_gwas || !n_qtl) {
                 .log("Skipping locus %s: insufficient variants (GWAS=%s, QTL=%s)", 
                     locus[[self$manifest_locus_id_key]], n_gwas, n_qtl)
                 return(NULL)
             }
 
-            # Load the LD matrix for the locus using the read_ld function, and log the status of the LD loading
-            ld <- self$read_ld(ld_path = locus[[self$manifest_ld_key]], bim_path = locus[[self$manifest_bim_key]])
+            # Load the LD matrix for the locus using the read_ld function
+            ld <- self$read_ld(
+                ld_path  = file.path(self$ld_dir, locus[[self$manifest_ld_key]]),
+                bim_path = file.path(self$ld_dir, locus[[self$manifest_bim_key]]),
+                panel_note = locus[[self$manifest_note_key]])
 
             # Build GWAS dataset for SuSiE analysis
             gwas_dataset <- self$build_dataset(locus_gwas, ld, type = "cc", N = gwas_sample_size, s = gwas_s, target_allele_key = self$gwas_target_allele_key)
@@ -813,25 +841,23 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 # Filter the QTL dataset for the current gene id
                 gene_qtl  <- locus_qtl %>% filter(.data[[self$standardized_gene_id_key]] == gene_id)
 
-                # Check GWAS and eQTL variant overlap
+                # Check GWAS and QTL variant overlap
                 n_overlap <- length(intersect(gwas_sub[[self$standardized_variant_id_key]], gene_qtl[[self$standardized_variant_id_key]]))
                 if (n_overlap < self$min_overlap) {
                     .stream_write(tibble(
                         !!self$gwas_strata_key := gwas_stratum,
                         !!self$qtl_strata_key := qtl_stratum,
                         !!self$manifest_locus_id_key := locus[[self$manifest_locus_id_key]],
-                        ld_status = ld$status,
-                        same_ld_panel_for_both = isTRUE(ld$e_same),
-                        ld_panel_note = self$ld_panel_note,
+                        ld_panel_note = locus[[self$manifest_note_key]],
                         gene_id = gene_id,
                         n_overlap = n_overlap,
                         reason = paste0("overlap<", self$min_overlap)
                     ), susie_low_overlap_fp)
-                    bucket["low"] <- bucket["low"] + 1L
+                    self$bucket["low"] <- self$bucket["low"] + 1L
                     next
                 }
 
-                # Record the lead eQTL variant
+                # Record the lead QTL variant
                 lead_qtl    <- gene_qtl %>% filter(is.finite(.data[[self$standardized_p_key]])) %>% arrange(.data[[self$standardized_p_key]]) %>% slice(1)
                 lead_qtl_id <- lead_qtl[[self$standardized_variant_id_key]][1] %||% NA_character_
                 lead_qtl_p  <- lead_qtl[[self$standardized_p_key]][1] %||% NA_real_
@@ -846,7 +872,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
                 if (!is.null(gene_qtl_dataset) && is.null(gene_qtl_dataset$too_few) && !is.null(gene_qtl_dataset$D)) {
                     n_qtl_ld <- gene_qtl_dataset$n
-                    qtl_susie_fit <- self$safe_runsusie(gene_qtl_dataset$D, sprintf("%s eQTL %s/%s", gwas_stratum, locus[[self$manifest_locus_id_key]], gene_id))
+                    qtl_susie_fit <- self$safe_runsusie(gene_qtl_dataset$D, sprintf("%s QTL %s/%s", gwas_stratum, locus[[self$manifest_locus_id_key]], gene_id))
                     n_qtl_signals <- tryCatch(length(qtl_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
                 }
 
@@ -871,55 +897,70 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                     top_gwas_pval,
                     lead_qtl_id,
                     lead_qtl_p,
-                    susie_full_fp
+                    coloc_full_fp
                 )
 
                 # If no results were written, run coloc.abf fallback and write results to the specified file path
                 if (!wrote_any) {
                     coloc_abf_result <- self$run_coloc_abf_fallback(gwas_sub, gene_qtl, gwas_sample_size, gwas_s, qtl_sample_size, qtl_sdY)
+                    
                     if (!is.null(coloc_abf_result)) {
+                        # Write the coloc.abf fallback results to the specified file path in a streaming manner, appending to the file if it already exists
                         .stream_write(tibble(
-                            !!self$gwas_strata_key := gwas_stratum,
-                            !!self$qtl_strata_key := qtl_stratum,
-                            !!self$manifest_locus_id_key := locus[[self$manifest_locus_id_key]],
-                            ld_status = ld$status,
-                            same_ld_panel_for_both = isTRUE(ld$e_same),
-                            ld_panel_note = self$ld_panel_note,
-                            gene_id = gene_id,
-                            n_overlap = coloc_abf_result$n,
-                            PP.H0 = coloc_abf_result$PP[1],
-                            PP.H1 = coloc_abf_result$PP[2],
-                            PP.H2 = coloc_abf_result$PP[3],
-                            PP.H3 = coloc_abf_result$PP[4],
-                            PP.H4 = coloc_abf_result$PP[5],
-                            n_snps_overlap = n_overlap,
-                            n_gwas_ld = n_gwas_ld,
-                            n_qtl_ld = n_qtl_ld,
-                            n_gwas_signals = n_gwas_signals,
-                            n_qtl_signals = n_qtl_signals,
-                            cred_set_size_95 = NA_integer_,
-                            top_snp_h4 = coloc_abf_result$top,
-                            top_gwas_variant = top_gwas_variant,
-                            top_gwas_pval = top_gwas_pval,
-                            lead_qtl_id = lead_qtl_id,
-                            lead_qtl_p = lead_qtl_p
-                        ), susie_full_fp)
+                                !!self$gwas_strata_key := gwas_stratum,
+                                !!self$qtl_strata_key := qtl_stratum,
+                                !!self$manifest_locus_id_key := locus[[self$manifest_locus_id_key]],
+                                ld_panel_note = locus[[self$manifest_note_key]],
+                                gene_id = gene_id,
+                                method = "coloc.abf fallback",
+                                idx1 = NA_integer_,
+                                idx2 = NA_integer_,
+                                hit1 = NA_character_,
+                                hit2 = NA_character_,
+                                nsnps = coloc_abf_result$n,
+                                PP.H0 = coloc_abf_result$PP[1],
+                                PP.H1 = coloc_abf_result$PP[2],
+                                PP.H2 = coloc_abf_result$PP[3],
+                                PP.H3 = coloc_abf_result$PP[4],
+                                PP.H4 = coloc_abf_result$PP[5],
+                                n_snps_overlap = n_overlap,
+                                n_gwas_ld = n_gwas_ld,
+                                n_qtl_ld = n_qtl_ld,
+                                n_gwas_signals = n_gwas_signals,
+                                n_qtl_signals = n_qtl_signals,
+                                cred_set_size_95 = NA_integer_,
+                                top_snp_h4 = coloc_abf_result$top,
+                                top_gwas_variant = top_gwas_variant,
+                                top_gwas_pval = top_gwas_pval,
+                                lead_qtl_id = lead_qtl_id,
+                                lead_qtl_p = lead_qtl_p,
+                            ), coloc_full_fp)
 
-                        # Update the bucket counter for ABF fallback and set the wrote_any flag to TRUE
-                        bucket["abf_fallback"] <- bucket["abf_fallback"] + 1L
+                            # Set wrote_any to TRUE to indicate that results have been written for coloc.abf fallback
+                            wrote_any <- TRUE
+
+                            # Update the bucket counter for coloc.abf fallback and log the successful writing of results
+                            self$bucket["abf_fallback"] <- self$bucket["abf_fallback"] + 1L
+
+                            # Log the successful writing of coloc.abf fallback results for the current gene and locus
+                            .log("Coloc.abf fallback results written for gene %s in locus %s", gene_id, locus[[self$manifest_locus_id_key]])
+                    } else {
+                        # Log that no colocalization results were written for the current gene and locus
+                        .log("No colocalization results written for gene %s in locus %s", gene_id, locus[[self$manifest_locus_id_key]])
                     }
+                } else {
+                    .log("SuSiE colocalization results written for gene %s in locus %s", gene_id, locus[[self$manifest_locus_id_key]])
                 }
 
                 # Update the best_overlap_locus variable if the current n_overlap is greater than the previous best_overlap_locus
                 if (n_overlap > best_overlap_locus) best_overlap_locus <- n_overlap
             }
 
-            # Create a tibble summarizing the locus results, including locus ID, LD status, number of GWAS and QTL signals, and best overlap
+            # Create a tibble summarizing the locus results, including locus ID, number of GWAS and QTL signals, and best overlap
             locus_result <- tibble(
                 !!self$manifest_locus_id_key := locus[[self$manifest_locus_id_key]],
-                ld_status = ld$status,
-                same_ld_panel_for_both = isTRUE(ld$e_same),
-                n_gwas = n_gwas, 
+                ld_panel_note = locus[[self$manifest_note_key]],
+                n_gwas = n_gwas,
                 n_qtl = n_qtl,
                 n_gwas_ld = n_gwas_ld %||% NA_integer_,
                 n_gwas_signals = n_gwas_signals,
@@ -972,10 +1013,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             }
 
             # Initialize an empty list to store locus results
-            locus_results <- list()
-
-            # Initialize a bucket to keep track of the number of results written for each method (SuSiE pairs, ABF fallback, and low overlap)
-            bucket <- c(susie_pairs = 0L, abf_fallback = 0L, low = 0L)
+            locus_results <- list()            
 
             # Extract unique strata identifiers from the GWAS and QTL datasets
             gwas_strata <- unique(gwas_data[[self$gwas_strata_key]])
@@ -984,7 +1022,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Loop through each combination of GWAS and QTL strata
             for (gwas_stratum in gwas_strata) {
                 susie_low_overlap_fp <- file.path(self$output_dir, sprintf("%s_coloc_susie_low_overlap.tsv", gwas_stratum))
-                susie_full_fp <- file.path(self$output_dir, sprintf("%s_coloc_susie_full.tsv", gwas_stratum))
+                coloc_full_fp <- file.path(self$output_dir, sprintf("%s_coloc_full.tsv", gwas_stratum))
                 for (qtl_stratum in qtl_strata) {
                     .log("Running colocalization analysis for GWAS stratum %s and QTL stratum %s", gwas_stratum, qtl_stratum)
 
@@ -996,7 +1034,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                     for (i in seq_len(nrow(loci_data))) {
                         locus <- loci_data[i, ]
                         locus_result <- self$process_locus(locus, gwas_sub, gwas_stratum, self$gwas_sample_size, self$gwas_s,
-                                                            qtl_sub, qtl_stratum, self$qtl_sample_size, self$qtl_sdY, susie_low_overlap_fp, susie_full_fp)
+                                                            qtl_sub, qtl_stratum, self$qtl_sample_size, self$qtl_sdY, susie_low_overlap_fp, coloc_full_fp)
                         if (!is.null(locus_result)) {
                             locus_results <- append(locus_results, list(locus_result))
                         }
@@ -1004,7 +1042,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 }
 
                 # Write summaries
-                full_df <- if (file.exists(susie_full_fp)) fread(susie_full_fp) else data.table()
+                full_df <- if (file.exists(coloc_full_fp)) fread(coloc_full_fp) else data.table()
                 strong  <- if (nrow(full_df)) as_tibble(full_df) %>%
                     filter(!is.na(PP.H4), PP.H4 >= self$pp_h4_threshold, n_snps_overlap >= self$min_overlap) else tibble()
                 write_tsv(strong, file.path(self$output_dir, paste0(tolower(gwas_stratum), "_coloc_susie_strong.tsv")))
@@ -1019,20 +1057,20 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                     sprintf("Generated: %s", format(Sys.time())),
                     sprintf("%s: %s", self$gwas_strata_key, gwas_stratum),
                     "",
-                    sprintf("Signal pairs written (susie): %d", bucket["susie_pairs"]),
-                    sprintf("Gene/tissue via abf fallback: %d", bucket["abf_fallback"]),
-                    sprintf("Gene/tissue below %.5f: %d", self$min_overlap, bucket["low"]),
+                    sprintf("Signal pairs written (susie): %d", self$bucket["susie_pairs"]),
+                    sprintf("Loci processed via abf fallback: %d", self$bucket["abf_fallback"]),
+                    sprintf("Loci w/ overlap below %d: %d", self$min_overlap, self$bucket["low"]),
                     sprintf("Strong (PP.H4 >= %.2f): %d rows", self$pp_h4_threshold, nrow(strong)),
                     "",
                     sprintf("Priors: p1 = %g, p2 = %g, p12 = %g", self$coloc_priors$p1, self$coloc_priors$p2, self$coloc_priors$p12),
                     sprintf("SuSiE: coverage = %.2f, max_iter = %d, L = %d", self$cred_coverage, self$susie_max_iter, self$susie_l),
                     sprintf("MIN OVERLAP = %d, MIN SNPS SUSIE = %d, DROP AMBIGUOUS = %s", self$min_overlap, self$susie_min_snps, self$drop_ambiguous),
                     sprintf("QTL sdY = %g", self$qtl_sdY),
-                    sprintf("LD panel note: %s", self$ld_panel_note)
+                    sprintf("LD panel note: %s", unique(loci_data[[self$manifest_note_key]])[1])
                 )
                 writeLines(report, report_path)
                 .log("%s: Completed. susie_pairs = %d, abf = %d, low = %d, strong = %d",
-                    gwas_stratum, bucket["susie_pairs"], bucket["abf_fallback"], bucket["low"], nrow(strong))
+                    gwas_stratum, self$bucket["susie_pairs"], self$bucket["abf_fallback"], self$bucket["low"], nrow(strong))
                 invisible(list(full = full_df, strong = strong, locus = locus_tbl, report = report_path))
             }
         }
@@ -1049,34 +1087,35 @@ if (!interactive()) {
     parser$add_argument("--gwas", required = TRUE, help = "File name of the GWAS summary statistics file")
     parser$add_argument("--gwas_target_allele_key", default = "EFFECT", help = "Column name for the target allele in the GWAS summary statistics file (optional). Default is 'EFFECT'.")
     parser$add_argument("--gwas_strata_key", default = NULL, help = "Column name for the GWAS strata in the GWAS summary statistics file (optional). Default is 'STRATUM'.")
-    parser$add_argument("--gwas_sample_size", required = TRUE, help = "Sample size for the GWAS dataset")
-    parser$add_argument("--gwas_case_fraction", required = TRUE, help = "Case fraction for the GWAS dataset.")
+    parser$add_argument("--gwas_sample_size", type = "numeric", required = TRUE, help = "Sample size for the GWAS dataset")
+    parser$add_argument("--gwas_case_fraction", type = "numeric", required = TRUE, help = "Case fraction for the GWAS dataset.")
     parser$add_argument("--qtl", required = TRUE, help = "File name of the QTL summary statistics file")
     parser$add_argument("--qtl_target_allele_key", default = "EFFECT", help = "Column name for the target allele in the QTL summary statistics file (optional). Default is 'EFFECT'.")
     parser$add_argument("--qtl_strata_key", default = NULL, help = "Column name for the QTL strata in the QTL summary statistics file (optional). Default is 'STRATUM'.")
-    parser$add_argument("--qtl_sample_size", required = TRUE, help = "Sample size for the QTL dataset")
-    parser$add_argument("--qtl_sdY", default = 1, help = "Standard deviation of the trait for the QTL dataset (optional). Default is 1.")
+    parser$add_argument("--qtl_sample_size", type = "numeric", required = TRUE, help = "Sample size for the QTL dataset")
+    parser$add_argument("--qtl_sdY", type = "numeric", default = 1, help = "Standard deviation of the trait for the QTL dataset (optional). Default is 1.")
     parser$add_argument("--ld_manifest", default = "ld_manifest.tsv", help = "File name of the ld manifest file containing locus information (optional). Default is 'ld_manifest.tsv'.")
     parser$add_argument("--drop_ambiguous", default = TRUE, help = "Drop ambiguous SNPs (A/T or C/G) from the analysis (optional). Default is TRUE.")
-    parser$add_argument("--min_overlap", default = 50, help = "Minimum number of overlapping SNPs required for colocalization analysis (optional). Default is 50.")
-    parser$add_argument("--cred_coverage", default = 0.95, help = "Credible set coverage for SuSiE analysis (optional). Default is 0.95.")
-    parser$add_argument("--pp_h4_threshold", default = 0.80, help = "Posterior probability threshold for strong colocalization (optional). Default is 0.80.")
-    parser$add_argument("--susie_min_snps", default = 50, help = "Minimum number of SNPs required for SuSiE analysis (optional). Default is 50.")
-    parser$add_argument("--susie_max_iter", default = 100, help = "Maximum number of iterations for SuSiE analysis (optional). Default is 100.")
-    parser$add_argument("--susie_l", default = 10, help = "Maximum number of causal variants for SuSiE analysis (optional). Default is 10.")
+    parser$add_argument("--min_overlap", type = "numeric", default = 50, help = "Minimum number of overlapping SNPs required for colocalization analysis (optional). Default is 50.")
+    parser$add_argument("--cred_coverage", type = "numeric", default = 0.95, help = "Credible set coverage for SuSiE analysis (optional). Default is 0.95.")
+    parser$add_argument("--pp_h4_threshold", type = "numeric", default = 0.80, help = "Posterior probability threshold for strong colocalization (optional). Default is 0.80.")
+    parser$add_argument("--susie_min_snps", type = "numeric", default = 50, help = "Minimum number of SNPs required for SuSiE analysis (optional). Default is 50.")
+    parser$add_argument("--susie_max_iter", type = "numeric", default = 100, help = "Maximum number of iterations for SuSiE analysis (optional). Default is 100.")
+    parser$add_argument("--susie_l", type = "numeric", default = 10, help = "Maximum number of causal variants for SuSiE analysis (optional). Default is 10.")
     parser$add_argument("--susie_repeat_until_converged", default = TRUE, help = "Repeat SuSiE until convergence (optional). Default is TRUE.")
-    parser$add_argument("--coloc_prior_p1", default = 1e-4, help = "Prior probability for hypothesis H1 (optional). Default is 1e-4.")
-    parser$add_argument("--coloc_prior_p2", default = 1e-4, help = "Prior probability for hypothesis H2 (optional). Default is 1e-4.")
-    parser$add_argument("--coloc_prior_p12", default = 1e-5, help = "Prior probability for hypothesis H4 (optional). Default is 1e-5.")
+    parser$add_argument("--coloc_prior_p1", type = "numeric", default = 1e-4, help = "Prior probability for hypothesis H1 (optional). Default is 1e-4.")
+    parser$add_argument("--coloc_prior_p2", type = "numeric", default = 1e-4, help = "Prior probability for hypothesis H2 (optional). Default is 1e-4.")
+    parser$add_argument("--coloc_prior_p12", type = "numeric", default = 1e-5, help = "Prior probability for hypothesis H4 (optional). Default is 1e-5.")
     parser$add_argument("--manifest_locus_id_key", default = "LOCUS_ID", help = "Column name for the locus ID in the LD manifest file (optional). Default is 'LOCUS_ID'.")
     parser$add_argument("--manifest_left_bound_key", default = "LEFT_500KB", help = "Column name for the left bound of the locus in the LD manifest file (optional). Default is 'LEFT_500KB'.")
     parser$add_argument("--manifest_right_bound_key", default = "RIGHT_500KB", help = "Column name for the right bound of the locus in the LD manifest file (optional). Default is 'RIGHT_500KB'.")
     parser$add_argument("--manifest_ld_key", default = "LD", help = "Column name for the LD matrix file path in the LD manifest file (optional). Default is 'LD'.")
     parser$add_argument("--manifest_bim_key", default = "BIM", help = "Column name for the BIM file path in the LD manifest file (optional). Default is 'BIM'.")
+    parser$add_argument("--manifest_note_key", default = "note", help = "Column name for the LD panel note in the LD manifest file (optional). Default is 'PANEL_NOTE'.")
     parser$add_argument("--standardized_variant_id_key", default = "VAR", help = "Column name for the standardized variant ID in the GWAS and QTL summary statistics files (optional). Default is 'VAR'.")
     parser$add_argument("--standardized_chr_key", default = "CHR", help = "Column name for the standardized chromosome in the GWAS and QTL summary statistics files (optional). Default is 'CHR'.")
     parser$add_argument("--standardized_pos_key", default = "BP", help = "Column name for the standardized position in the GWAS and QTL summary statistics files (optional). Default is 'POS'.")
-    parser$add_argument("--standardized_gene_id_key", default = "GENE_ID", help = "Column name for the standardized gene ID in the QTL summary statistics file (optional). Default is 'GENE_ID'.")
+    parser$add_argument("--standardized_gene_id_key", default = "GENE", help = "Column name for the standardized gene ID in the QTL summary statistics file (optional). Default is 'GENE_ID'.")
     parser$add_argument("--standardized_non_effect_allele_key", default = "NON_EFFECT", help = "Column name for the standardized reference allele in the GWAS and QTL summary statistics files (optional). Default is 'NON_EFFECT'.")
     parser$add_argument("--standardized_effect_allele_key", default = "EFFECT", help = "Column name for the standardized effect allele in the GWAS and QTL summary statistics files (optional). Default is 'EFFECT'.")
     parser$add_argument("--standardized_p_key", default = "P", help = "Column name for the standardized p-value in the GWAS and QTL summary statistics files (optional). Default is 'P'.")

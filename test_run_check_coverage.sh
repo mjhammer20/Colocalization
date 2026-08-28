@@ -17,13 +17,13 @@ MANIFEST_BIM_KEY="BIM"
 GWAS_FP="/mnt/output/output/coloc/GP2_et_al_2025_PD_case_control_EUR_ALL_hg38_rsID.standardized.tsv"
 GWAS_STRATA_KEY=""
 QTL_FP="/mnt/output/output/coloc/CER_Mayo_cis_eQTL_release.standardized.tsv"
-QTL_STRATA_KEY=""
+QTL_STRATA_KEY="TISSUE"
 HIGH_OVERLAP_MIN=0.90
 MEDIUM_OVERLAP_MIN=0.70
 QC_OUTPUT_DIR="/mnt/output/output/coloc/qc"
 
 # Run the check_coverage.py script with the specified parameters
-python3 src/check_coverage.py \
+python3 -u src/check_coverage.py \
     --out_ld_dir "$LD_OUTPUT_DIR" \
     --ld_manifest "$LD_MANIFEST" \
     --standardized_locus_id_key "$STANDARD_LOC_KEY" \
@@ -39,6 +39,7 @@ python3 src/check_coverage.py \
     --manifest_bim_key "$MANIFEST_BIM_KEY" \
     --gwas_fp "$GWAS_FP" \
     --qtl_fp "$QTL_FP" \
+    --qtl_strata_key "$QTL_STRATA_KEY" \
     --high_overlap_min "$HIGH_OVERLAP_MIN" \
     --medium_overlap_min "$MEDIUM_OVERLAP_MIN" \
     --out_qc_dir "$QC_OUTPUT_DIR" \
