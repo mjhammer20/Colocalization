@@ -279,7 +279,7 @@ class SumStatsTransformer:
         print(f"Loading input data from {self.sum_stats_fp}... Built from {self.sum_stats_genome_build}")
         self.ss_df = load_input_data(self.sum_stats_fp, args.header_lines)
         print(f"Loaded input data from {self.sum_stats_fp} with shape: {self.ss_df.shape}")
-        self.loci_fp = Path(self.output_dir, args.loci_file)
+        self.loci_fp = Path(args.loci_file)
         print(f"Loading input data from {self.loci_fp}...")
         self.loci_df = load_input_data(self.loci_fp, 0)
         print(f"Loaded input data from {self.loci_fp} with shape: {self.loci_df.shape}")
@@ -656,7 +656,6 @@ class SumStatsTransformer:
             self.standardized_var_beta_key,
             self.standardized_se_key,
             self.standardized_maf_key,
-            self.standardized_n_key,
             self.standardized_strata_key,
             self.dbSNP_validation_key
         ]
@@ -778,7 +777,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Transform summary statistics to standardized format.")
     parser.add_argument("--sum_stats_file", type=str, required=True, help="Path to the input file containing summary statistics.")
     parser.add_argument("--sum_stats_genome_build", type=str, required=True, help="Genome build of the summary statistics (e.g., hg19, hg38).")
-    parser.add_argument("--loci_file", type=str, required=True, help="Name of the file containing loci information. Output from define_loci.")
+    parser.add_argument("--loci_file", type=str, required=True, help="Path to the file containing loci information. Output from define_loci.")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory to save the output files.")
     parser.add_argument("--qc_output_dir", type=str, required=True, help="Directory to save the QC output files.")
     parser.add_argument("--header_lines", type=int, default=0, help="Number of header lines to skip in the input file.")

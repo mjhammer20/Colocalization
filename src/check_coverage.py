@@ -422,7 +422,7 @@ class CoverageCheck:
         ]
 
         # Create subsets of the GWAS DataFrame based on the locus boundaries and stratification keys
-        if self.gwas_strata_key:
+        if self.gwas_strata_key is not None and not gwas_filtered[self.gwas_strata_key].isnull().all():
             gwas_subsets = {key: sub for key, sub in gwas_filtered.groupby(self.gwas_strata_key)}
         else:
             gwas_subsets = {"Full": gwas_filtered}
@@ -435,7 +435,7 @@ class CoverageCheck:
         ]
 
         # Create subsets of the QTL DataFrame based on the locus boundaries and stratification keys
-        if self.qtl_strata_key:
+        if self.qtl_strata_key is not None and not qtl_filtered[self.qtl_strata_key].isnull().all():
             qtl_subsets = {key: sub for key, sub in qtl_filtered.groupby(self.qtl_strata_key)}
 
         else:

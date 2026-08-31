@@ -173,6 +173,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
         # Fields
         output_dir = NULL,
         ld_dir = NULL,
+        qc_dir = NULL,
         gwas = NULL,
         gwas_path = NULL,
         gwas_target_allele_key = NULL,
@@ -220,15 +221,14 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
             # Inputs/Outputs
             self$output_dir <- args$output_dir
-            self$ld_dir <- file.path(self$output_dir, args$ld_dir)
-            self$gwas <- args$gwas
-            self$gwas_path <- file.path(self$output_dir, args$gwas)
+            self$ld_dir <- file.path(args$ld_dir)
+            self$qc_dir <- file.path(args$qc_dir)
+            self$gwas_path <- file.path(args$gwas_fp)
             self$gwas_target_allele_key <- args$gwas_target_allele_key
             self$gwas_strata_key <- args$gwas_strata_key
             self$gwas_sample_size <- args$gwas_sample_size
             self$gwas_s <- args$gwas_case_fraction
-            self$qtl <- args$qtl
-            self$qtl_path <- file.path(self$output_dir, args$qtl)
+            self$qtl_path <- file.path(args$qtl_fp)
             self$qtl_target_allele_key <- args$qtl_target_allele_key
             self$qtl_strata_key <- args$qtl_strata_key
             self$qtl_sample_size <- args$qtl_sample_size
@@ -1021,7 +1021,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
             # Loop through each combination of GWAS and QTL strata
             for (gwas_stratum in gwas_strata) {
-                susie_low_overlap_fp <- file.path(self$output_dir, sprintf("%s_coloc_susie_low_overlap.tsv", gwas_stratum))
+                susie_low_overlap_fp <- file.path(self$qc_dir, sprintf("%s_coloc_susie_low_overlap.tsv", gwas_stratum))
                 coloc_full_fp <- file.path(self$output_dir, sprintf("%s_coloc_full.tsv", gwas_stratum))
                 for (qtl_stratum in qtl_strata) {
                     .log("Running colocalization analysis for GWAS stratum %s and QTL stratum %s", gwas_stratum, qtl_stratum)
@@ -1045,11 +1045,11 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 full_df <- if (file.exists(coloc_full_fp)) fread(coloc_full_fp) else data.table()
                 strong  <- if (nrow(full_df)) as_tibble(full_df) %>%
                     filter(!is.na(PP.H4), PP.H4 >= self$pp_h4_threshold, n_snps_overlap >= self$min_overlap) else tibble()
-                write_tsv(strong, file.path(self$output_dir, paste0(tolower(gwas_stratum), "_coloc_susie_strong.tsv")))
+                write_tsv(strong, file.path(self$qc_dir, paste0(tolower(gwas_stratum), "_coloc_susie_strong.tsv")))
 
                 locus_tbl <- if (length(locus_results)) bind_rows(locus_results) else tibble()
                 write_tsv(locus_tbl %>% arrange(self$manifest_locus_id_key),
-                            file.path(self$output_dir, paste0(tolower(gwas_stratum), "_locus_overlap_summary.tsv")))
+                            file.path(self$qc_dir, paste0(tolower(gwas_stratum), "_locus_overlap_summary.tsv")))
 
                 report_path <- file.path(self$output_dir, paste0(tolower(gwas_stratum), "_summary_report.txt"))
                 report <- c(
@@ -1082,14 +1082,15 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 if (!interactive()) {
     
     parser <- ArgumentParser(description = "Colocalization analysis using SuSiE and coloc.abf")
-    parser$add_argument("--output_dir", required = TRUE, help = "Path of directory to save output files")
-    parser$add_argument("--ld_dir", default = "ld", help = "Name of directory containing LD matrices and BIM files (optional). Should be located in the output_dir. Default is 'ld'.")
-    parser$add_argument("--gwas", required = TRUE, help = "File name of the GWAS summary statistics file")
+    parser$add_argument("--output_dir", required = TRUE, help = "Path to the directory to save output files")
+    parser$add_argument("--ld_dir", required = TRUE, help = "Path to the directory containing LD matrices and BIM files.")
+    parser$add_argument("--qc_dir", required = TRUE, help = "Path to the directory containing QC files.")
+    parser$add_argument("--gwas_fp", required = TRUE, help = "Path to the standardized GWAS summary statistics file")
     parser$add_argument("--gwas_target_allele_key", default = "EFFECT", help = "Column name for the target allele in the GWAS summary statistics file (optional). Default is 'EFFECT'.")
     parser$add_argument("--gwas_strata_key", default = NULL, help = "Column name for the GWAS strata in the GWAS summary statistics file (optional). Default is 'STRATUM'.")
     parser$add_argument("--gwas_sample_size", type = "numeric", required = TRUE, help = "Sample size for the GWAS dataset")
     parser$add_argument("--gwas_case_fraction", type = "numeric", required = TRUE, help = "Case fraction for the GWAS dataset.")
-    parser$add_argument("--qtl", required = TRUE, help = "File name of the QTL summary statistics file")
+    parser$add_argument("--qtl_fp", required = TRUE, help = "Path to the standardized QTL summary statistics file")
     parser$add_argument("--qtl_target_allele_key", default = "EFFECT", help = "Column name for the target allele in the QTL summary statistics file (optional). Default is 'EFFECT'.")
     parser$add_argument("--qtl_strata_key", default = NULL, help = "Column name for the QTL strata in the QTL summary statistics file (optional). Default is 'STRATUM'.")
     parser$add_argument("--qtl_sample_size", type = "numeric", required = TRUE, help = "Sample size for the QTL dataset")

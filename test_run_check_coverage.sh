@@ -16,11 +16,11 @@ STANDARD_NON_EFFECT_ALLELE_KEY="NON_EFFECT_ALLELE"
 MANIFEST_BIM_KEY="BIM"
 GWAS_FP="/mnt/output/output/coloc/GP2_et_al_2025_PD_case_control_EUR_ALL_hg38_rsID.standardized.tsv"
 GWAS_STRATA_KEY=""
-QTL_FP="/mnt/output/output/coloc/CER_Mayo_cis_eQTL_release.standardized.tsv"
-QTL_STRATA_KEY="TISSUE"
+QTL_FP="/mnt/output/output/coloc/amp_ad/tcx_mayo/TCX_Mayo_cis_eQTL_release.standardized.tsv"
+QTL_STRATA_KEY="REGION"
 HIGH_OVERLAP_MIN=0.90
 MEDIUM_OVERLAP_MIN=0.70
-QC_OUTPUT_DIR="/mnt/output/output/coloc/qc"
+QC_OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/tcx_mayo/qc"
 
 # Run the check_coverage.py script with the specified parameters
 python3 -u src/check_coverage.py \
@@ -43,4 +43,4 @@ python3 -u src/check_coverage.py \
     --high_overlap_min "$HIGH_OVERLAP_MIN" \
     --medium_overlap_min "$MEDIUM_OVERLAP_MIN" \
     --out_qc_dir "$QC_OUTPUT_DIR" \
-    2>&1 | tee /mnt/output/output/coloc/logs/check_coverage.log
+    2>&1 | tee /mnt/output/output/coloc/amp_ad/tcx_mayo/logs/check_coverage.log
