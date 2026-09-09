@@ -180,8 +180,12 @@ def _extract_alleles_from_record(record: dict) -> tuple:
     
     # Extract the reference and alternate alleles from the SEQ string, which is formatted as "[ref]/[alt]"
     ref_alt_list = ref_alt.split("/")
-    ref = ref_alt_list[0].replace("[", "")
-    alt = ref_alt_list[1].replace("]", "")
+    try:
+        ref = ref_alt_list[0].replace("[", "")
+        alt = ref_alt_list[1].replace("]", "")
+    except IndexError:
+        print(f"Error: SEQ format is invalid for rsID rs{record.get('@uid', 'Unknown')}")
+        return "NA", "NA"
 
     return ref, alt
 
@@ -361,9 +365,8 @@ class SumStatsTransformer:
         for _, row in self.loci_df.iterrows():
             idx = self.ss_df.index[self.ss_df[self.standardized_chr_key] == row[self.standardized_chr_key]]
             pos_vals = numeric_series(pd.DataFrame(self.ss_df.loc[idx]), self.ss_pos_key)
-            chrom_mask = pd.Series(False, index=idx)
-            chrom_mask |= pos_vals.between(row[self.loci_left_bound_key], row[self.loci_right_bound_key])
-            mask.loc[idx] = chrom_mask
+            chrom_mask = pos_vals.between(row[self.loci_left_bound_key], row[self.loci_right_bound_key])
+            mask.loc[idx] |= chrom_mask
 
         # Filter the summary statistics DataFrame based on the mask
         self.ss_df = pd.DataFrame(self.ss_df[mask])
@@ -509,7 +512,6 @@ class SumStatsTransformer:
         """
         # Extract numeric series for relevant summary statistics columns
         s_maf = numeric_series(self.annotated_df, self.ss_maf_key)
-        s_mac = numeric_series(self.annotated_df, self.ss_mac_key)
         s_p = numeric_series(self.annotated_df, self.ss_p_key)
         s_statistic = numeric_series(self.annotated_df, self.ss_statistic_key)
         s_se = numeric_series(self.annotated_df, self.ss_se_key)
@@ -598,7 +600,7 @@ class SumStatsTransformer:
         pos  = _coalesce(self.annotated_df, self.dbSNP_pos_key, self.ss_pos_key)
         ref  = _coalesce(self.annotated_df, self.dbSNP_non_effect_allele_key, self.ss_non_effect_allele_key)
         alt  = _coalesce(self.annotated_df, self.dbSNP_effect_allele_key, self.ss_effect_allele_key)
-        chrom = self.annotated_df[self.ss_chr_key].astype(str)
+        chrom = self.annotated_df[self.standardized_chr_key].astype(str)
 
         # Add variant ID as chr:bp:ref:alt, using dbSNP values where available, falling back to summary statistics values
         self.annotated_df = add_variant_id(self.annotated_df, chrom, pos, ref, alt, self.standardized_variant_id_key)

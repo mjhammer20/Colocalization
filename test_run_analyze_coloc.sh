@@ -1,15 +1,15 @@
 #!/bin/bash
 
 # Configuration 
-OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/tcx_mayo"
+OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta"
 LD_DIR="/mnt/output/output/coloc/ld"
-QC_DIR="/mnt/output/output/coloc/amp_ad/tcx_mayo/qc"
+QC_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta/qc"
 GWAS_FP="/mnt/output/output/coloc/GP2_et_al_2025_PD_case_control_EUR_ALL_hg38_rsID.standardized.tsv"
-QTL_FP="/mnt/output/output/coloc/amp_ad/tcx_mayo/TCX_Mayo_cis_eQTL_release.standardized.tsv"
+QTL_FP="/mnt/output/output/coloc/amp_ad/cortex_meta/Cortex_MetaAnalysis_ROSMAP_CMC_HBCC_Mayo_cis_eQTL_release.standardized.tsv"
 QTL_STRATA_KEY="REGION"
 GWAS_SAMPLE_SIZE=226196
 GWAS_CASE_FRACTION=0.207306937
-QTL_SAMPLE_SIZE=940
+QTL_SAMPLE_SIZE=1694
 MIN_OVERLAP=10
 MIN_SNPS_SUSIE=10
 
@@ -26,4 +26,4 @@ Rscript src/analyze_colocalization.R \
     --min_overlap $MIN_OVERLAP \
     --susie_min_snps $MIN_SNPS_SUSIE \
     --qtl_strata_key $QTL_STRATA_KEY \
-    2>&1 | tee /mnt/output/output/coloc/amp_ad/tcx_mayo/logs/analyze_coloc.log
+    2>&1 | tee /mnt/output/output/coloc/amp_ad/cortex_meta/logs/analyze_coloc.log

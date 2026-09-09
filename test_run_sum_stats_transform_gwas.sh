@@ -16,7 +16,7 @@ SS_EFFECT_KEY="effect_allele"
 SS_P_KEY="p_value"
 SS_BETA_KEY="beta"
 SS_SE_KEY="standard_error"
-SS_N_KEY=""
+SS_N=226196
 SS_STATISTIC_KEY=""
 SS_MAF_KEY="effect_allele_frequency"
 SS_MAC_KEY=""
@@ -25,7 +25,7 @@ SS_SDY_KEY=""
 SS_TISSUE_KEY=""
 
 # Input Loci File
-LOCI_FILE="meta6_gwas_loci.merged.tsv"
+LOCI_FILE="/mnt/output/output/coloc/meta6_gwas_loci.merged.tsv"
 LOCI_LEFT_BOUND_KEY="LEFT_500KB"
 LOCI_RIGHT_BOUND_KEY="RIGHT_500KB"
 
@@ -69,6 +69,7 @@ python3 -u src/sum_stats_transform.py \
     --ss_se_key $SS_SE_KEY \
     --ss_beta_key $SS_BETA_KEY \
     --ss_maf_key $SS_MAF_KEY \
+    --ss_n $SS_N \
     --standardized_chr_key $STANDARDIZED_CHR_KEY \
     --standardized_pos_key $STANDARDIZED_POS_KEY \
     --standardized_rsid_key $STANDARDIZED_RSID_KEY \
@@ -79,12 +80,9 @@ python3 -u src/sum_stats_transform.py \
     --standardized_p_key $STANDARDIZED_P_KEY \
     --standardized_beta_key $STANDARDIZED_BETA_KEY \
     --standardized_se_key $STANDARDIZED_SE_KEY \
-    --standardized_n_key $STANDARDIZED_N_KEY \
     --standardized_statistic_key $STANDARDIZED_STATISTIC_KEY \
     --standardized_maf_key $STANDARDIZED_MAF_KEY \
     --standardized_var_beta_key $STANDARDIZED_VAR_BETA_KEY \
-    --standardized_sdy_key $STANDARDIZED_SDY_KEY \
-    --standardized_tissue_key $STANDARDIZED_TISSUE_KEY \
     --loci_left_bound_key $LOCI_LEFT_BOUND_KEY \
     --loci_right_bound_key $LOCI_RIGHT_BOUND_KEY \
     2>&1 | tee /mnt/output/output/coloc/logs/test_run_sum_stats_transform_gwas.log

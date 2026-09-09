@@ -4,7 +4,7 @@
 ENTREZ_EMAIL="matt@datatecnica.com"
 
 # Input Summary Statistics
-SUM_STATS_FILE="/mnt/working/locus_reports/qtl/eqtl/amp_ad/TCX_Mayo_cis_eQTL_release.csv"
+SUM_STATS_FILE="/mnt/working/locus_reports/qtl/eqtl/amp_ad/Cortex_MetaAnalysis_ROSMAP_CMC_HBCC_Mayo_cis_eQTL_release.csv"
 SUM_STATS_GENOME_BUILD="hg19"
 HEADER_LINES=0
 SS_CHR_KEY="chromosome"
@@ -16,7 +16,7 @@ SS_EFFECT_KEY="A2"
 SS_P_KEY="pvalue"
 SS_BETA_KEY="beta"
 SS_SE_KEY=""
-SS_N=940
+SS_N=1694
 SS_STATISTIC_KEY="statistic"
 SS_MAF_KEY="A2freq"
 SS_MAC_KEY=""
@@ -46,8 +46,8 @@ STANDARDIZED_VAR_BETA_KEY="VARBETA"
 STANDARDIZED_STRATA_KEY="REGION"
 
 # Output Directories
-OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/tcx_mayo"
-QC_OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/tcx_mayo/qc"
+OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta"
+QC_OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta/qc"
 
 # Run sum_stats_transform.py
 python3 -u src/sum_stats_transform.py \
@@ -85,4 +85,4 @@ python3 -u src/sum_stats_transform.py \
     --standardized_strata_key $STANDARDIZED_STRATA_KEY \
     --loci_left_bound_key $LOCI_LEFT_BOUND_KEY \
     --loci_right_bound_key $LOCI_RIGHT_BOUND_KEY \
-    2>&1 | tee /mnt/output/output/coloc/amp_ad/tcx_mayo/logs/test_run_sum_stats_transform_qtl.log
+    2>&1 | tee /mnt/output/output/coloc/amp_ad/cortex_meta/logs/test_run_sum_stats_transform_qtl.log
