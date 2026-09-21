@@ -291,6 +291,7 @@ class SumStatsTransformer:
         self.loci_left_bound_key = args.loci_left_bound_key
         self.loci_right_bound_key = args.loci_right_bound_key
         self.snps_df = pd.DataFrame()
+        self.annotate_dbSNP = args.annotate_dbSNP
         self.ss_chr_key = args.ss_chr_key
         self.ss_pos_key = args.ss_pos_key
         self.ss_rsid_key = args.ss_rsid_key
@@ -306,6 +307,7 @@ class SumStatsTransformer:
         self.ss_var_beta_key = args.ss_var_beta_key
         self.ss_gene_id_key = args.ss_gene_id_key
         self.ss_strata_key = args.ss_strata_key
+        self.ss_strata_value = args.ss_strata_value
         self.target_genome_build = "hg38"
         self.annotated_df = pd.DataFrame()
         self.dbSNP_rsid_key = "rsID_dbsnp"
@@ -370,6 +372,25 @@ class SumStatsTransformer:
 
         # Filter the summary statistics DataFrame based on the mask
         self.ss_df = pd.DataFrame(self.ss_df[mask])
+
+
+    def filter_by_p_value(self):
+        """
+        Filter out SNPs with p-value greater than 0.99, as they are considered to have weak signal and unreliable standard error/variance calculations.
+
+        Returns:
+            None: The DataFrame is modified in place to exclude SNPs with p-value > 0.99.
+
+        """
+
+        # Filter out SNPs with p-value > 0.99 (weak signal, unreliable SE/VARBETA calculation)
+        p_col = numeric_series(self.ss_df, self.ss_p_key)
+        if len(p_col[p_col.notna()]) > 0:
+            high_p_filter = p_col <= 0.99
+            n_filtered = (~high_p_filter).sum()
+            if n_filtered > 0:
+                print(f"Filtering out {n_filtered} SNPs with p-value > 0.99 (weak signal, unreliable SE)")
+            self.ss_df = pd.DataFrame(self.ss_df[high_p_filter])
 
 
     def add_dbSNP_info(self):
@@ -579,21 +600,34 @@ class SumStatsTransformer:
             self.snps_df = self.ss_df[[self.standardized_chr_key, self.ss_pos_key, self.ss_rsid_key]].drop_duplicates()
             self.snps_df.set_index(self.ss_rsid_key, inplace=True)
 
-        # Add dbSNP allele and MAF information
-        if len(self.snps_df) > 0:
-            self.add_dbSNP_info()
+        # dbSNP Annotation and Validation
+        if self.annotate_dbSNP:
 
-        # Merge dbSNP info back into the original DataFrame
-        merge_keys = [self.standardized_chr_key, self.ss_pos_key] if self.ss_rsid_key not in self.ss_df.columns \
-            else [self.standardized_chr_key, self.ss_pos_key, self.ss_rsid_key]
-        self.annotated_df = pd.merge(self.ss_df, self.snps_df, on=merge_keys, how="left")
+            print(f"Annotating {len(self.snps_df)} unique SNPs with dbSNP information...")
+            
+            # Add dbSNP info to the snps_df DataFrame if there are any SNPs to annotate
+            if len(self.snps_df) > 0:
+                self.add_dbSNP_info()
+            
+            # Merge dbSNP info back into the original DataFrame
+            merge_keys = [self.standardized_chr_key, self.ss_pos_key] if self.ss_rsid_key not in self.ss_df.columns \
+                else [self.standardized_chr_key, self.ss_pos_key, self.ss_rsid_key]
+            self.annotated_df = pd.merge(self.ss_df, self.snps_df, on=merge_keys, how="left")
 
-        # Use dbSNP MAF if maf_key was not provided
-        if self.ss_maf_key is None and self.dbSNP_maf_key in self.annotated_df.columns:
-            self.ss_maf_key = self.dbSNP_maf_key
+            # Use dbSNP MAF if maf_key was not provided
+            if self.ss_maf_key is None and self.dbSNP_maf_key in self.annotated_df.columns:
+                self.ss_maf_key = self.dbSNP_maf_key
 
-        # Check allele match if effect/non-effect allele columns are available
-        self.validate_dbSNP()
+            # Check allele match if effect/non-effect allele columns are available
+            self.validate_dbSNP()
+
+        else:
+
+            print("Skipping dbSNP annotation/validation as requested...")
+
+            # If dbSNP annotation is skipped, copy the original DataFrame and add a column indicating that dbSNP annotation/validation was skipped
+            self.annotated_df = self.ss_df.copy()
+            self.annotated_df[self.dbSNP_validation_key] = "dbSNP annotation/validation skipped"
 
         # Resolve each component with per-row fallback via _coalesce:
         # prefer dbSNP values where available, fall back to summary statistics values
@@ -620,7 +654,10 @@ class SumStatsTransformer:
         """
         # Ensure tissue column exists
         if not self.ss_strata_key:
-            self.annotated_df[self.standardized_strata_key] = "NA"
+            if not self.ss_strata_value:
+                self.annotated_df[self.standardized_strata_key] = "NA"
+            else:
+                self.annotated_df[self.standardized_strata_key] = self.ss_strata_value
 
         # Ensure gene ID column exists
         if not self.ss_gene_id_key:
@@ -739,8 +776,13 @@ class SumStatsTransformer:
         self.filter_by_expanded_ranges()
         print(f"Filtered summary stats shape: {self.ss_df.shape}")
 
+        # Filter out SNPs with p-value > 0.99
+        print("Filtering out SNPs with p-value > 0.99...")
+        self.filter_by_p_value()
+        print(f"Filtered summary stats shape after p-value filtering: {self.ss_df.shape}")
+
         # Annotate
-        print("Annotating summary statistics with dbSNP information...")
+        print("Annotating summary statistics...")
         self.annotate()
 
         # Transform to standardized layout
@@ -766,6 +808,9 @@ def main(args: argparse.Namespace) -> None:
     # Initialize Entrez email (required by NCBI) for API access
     Entrez.email = args.entrez_email
 
+    # Log the annotate_dbSNP setting
+    print(f"dbSNP annotation enabled: {args.annotate_dbSNP}", flush=True)
+
     # Instantiate transformer with user-supplied column names
     transformer = SumStatsTransformer(args=args)
 
@@ -784,6 +829,7 @@ if __name__ == "__main__":
     parser.add_argument("--qc_output_dir", type=str, required=True, help="Directory to save the QC output files.")
     parser.add_argument("--header_lines", type=int, default=0, help="Number of header lines to skip in the input file.")
     parser.add_argument("--entrez_email", type=str, required=True, help="Email address for NCBI Entrez API.")
+    parser.add_argument("--annotate_dbSNP", action="store_true", default=False, help="Whether to annotate SNPs with dbSNP information. Default is False.")
     parser.add_argument("--ss_chr_key", type=str, required=True, help="Column name for chromosome.")
     parser.add_argument("--ss_pos_key", type=str, required=True, help="Column name for genomic position.")
     parser.add_argument("--ss_rsid_key", type=str, default=None, help="Column name for rsID (optional).")
@@ -799,6 +845,7 @@ if __name__ == "__main__":
     parser.add_argument("--ss_mac_key", type=str, default=None, help="Column name for minor allele count (optional).")
     parser.add_argument("--ss_var_beta_key", type=str, default=None, help="Column name for variance of beta (optional).")
     parser.add_argument("--ss_strata_key", type=str, default=None, help="Column name for strata label (optional). Ex. tissue, region, sex, etc.")
+    parser.add_argument("--ss_strata_value", type=str, default=None, help="Value to fill strata column in standardized output (optional). Ex. 'Cortex' if strata is region.")
     parser.add_argument("--standardized_chr_key", type=str, default="CHR", help="Standardized column name for chromosome.")
     parser.add_argument("--standardized_pos_key", type=str, default="BP", help="Standardized column name for position.")
     parser.add_argument("--standardized_rsid_key", type=str, default="SNP", help="Standardized column name for rsID.")

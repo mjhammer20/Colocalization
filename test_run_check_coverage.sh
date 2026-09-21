@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-LD_OUTPUT_DIR="/mnt/output/output/coloc/ld"
+LD_OUTPUT_DIR="/mnt/output/output/coloc/ld_1kg_full_EUR"
 LD_MANIFEST="ld_manifest.tsv"
 STANDARD_LOC_KEY="LOCUS_ID"
 STANDARD_LEFT_KEY="LEFT_500KB"
@@ -20,7 +20,7 @@ QTL_FP="/mnt/output/output/coloc/amp_ad/cortex_meta/Cortex_MetaAnalysis_ROSMAP_C
 QTL_STRATA_KEY="REGION"
 HIGH_OVERLAP_MIN=0.90
 MEDIUM_OVERLAP_MIN=0.70
-QC_OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta/qc"
+QC_OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta/qc/1kg_full_EUR"
 
 # Run the check_coverage.py script with the specified parameters
 python3 -u src/check_coverage.py \
@@ -43,4 +43,4 @@ python3 -u src/check_coverage.py \
     --high_overlap_min "$HIGH_OVERLAP_MIN" \
     --medium_overlap_min "$MEDIUM_OVERLAP_MIN" \
     --out_qc_dir "$QC_OUTPUT_DIR" \
-    2>&1 | tee /mnt/output/output/coloc/amp_ad/cortex_meta/logs/check_coverage.log
+    2>&1 | tee /mnt/output/output/coloc/amp_ad/cortex_meta/logs/check_coverage_1kg_full_EUR.log

@@ -65,7 +65,7 @@ suppressPackageStartupMessages({
     #     None. The function prints the message to the console and appends it to a log file.
     
     # Format the message with a timestamp and write it to both the console and the log file
-    msg <- sprintf(paste0(format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z"), " | ", sprintf(...)))
+    msg <- sprintf(paste0(format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z"), " | ", "%s"), sprintf(...))
     cat(msg, "\n", file = stderr())
 }
 
@@ -215,6 +215,10 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
         standardized_se_key = NULL,
         standardized_maf_key = NULL,
         bucket = NULL,
+        skip_MHC = NULL,
+        MHC_chr = NULL,
+        MHC_start = NULL,
+        MHC_end = NULL,
 
         # Initialize the class with paths and column keys
         initialize = function(args) {
@@ -274,6 +278,12 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
             # Tracking
             self$bucket <- c(susie_pairs = 0L, abf_fallback = 0L, low = 0L)
+
+            # MHC Region
+            self$skip_MHC <- args$skip_MHC
+            self$MHC_chr <- 6
+            self$MHC_start <- 28000000
+            self$MHC_end <- 34000000
         },
 
         read_ld = function(ld_path, bim_path, panel_note) {
@@ -299,6 +309,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             }
 
             # Read the BIM file and handle any errors
+            .log("  Reading LD matrix: %s", basename(ld_path))
             bim <- tryCatch(fread(bim_path, header = FALSE, data.table = FALSE),
                             error = function(e) NULL)
 
@@ -307,6 +318,8 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 .log("  BIM missing/empty: %s", as.character(bim_path))
                 return(NULL)
             }
+
+            .log("  BIM file loaded: %d variants", nrow(bim))
 
             # Extract chromosome, position, and alleles from the BIM file and create canonical keys
             # PLINK .bim: V1 chr, V2 id, V3 cM, V4 bp, V5 A1, V6 A2 ; --r counts A1
@@ -318,12 +331,18 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
             # Read the LD matrix and handle any errors
             M <- tryCatch(as.matrix(fread(ld_path, header = FALSE, data.table = FALSE)),
-                            error = function(e) NULL)
+                            error = function(e) {
+                                .log("  ERROR reading LD matrix: %s", conditionMessage(e))
+                                NULL
+                            })
             if (is.null(M) || nrow(M) != length(keys) || ncol(M) != length(keys)) {
                 .log("  LD shape mismatch (%s): matrix %dx%d vs bim %d",
                     basename(ld_path), nrow(M %||% matrix(0)), ncol(M %||% matrix(0)), length(keys))
                 return(NULL)
             }
+
+            .log("  LD matrix loaded: %dx%d", nrow(M), ncol(M))
+
 
             # Keep the first occurrence of duplicate variants
             dup <- duplicated(keys)
@@ -366,6 +385,13 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Subset the SNPs to those present in the LD matrix
             present <- snps[snps %in% rownames(ld$M)]
 
+            # Log SNP match percentage
+            pct_match <- 100 * length(present) / length(snps)
+            if (pct_match < 80) {
+                .log("    WARNING align_ld: only %.1f%% SNP match (present=%d, input=%d)", 
+                    pct_match, length(present), length(snps))
+            }
+
             # If there are fewer than 2 SNPs present, return NULL
             if (length(present) < 2) return(NULL)
 
@@ -379,6 +405,18 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             s <- rep(NA_real_, length(present))
             s[a1 == tgt] <- 1
             s[a2 == tgt] <- -1
+
+            # Log allele mismatches. If more than 10% of SNPs have mismatched alleles, return NULL to force fallback to coloc ABF
+            unmatched <- sum(is.na(s))
+            if (unmatched > 0) {
+                pct_unmatched <- 100 * unmatched / length(present)
+                .log("    WARNING align_ld: %.1f%% allele mismatch (%d/%d SNPs have target not in A1/A2)", 
+                    pct_unmatched, unmatched, length(present))
+                if (unmatched >= 0.1 * length(present)) {
+                    .log("      This may cause SuSiE convergence issues or 'unreasonably large prior variance' errors")
+                    return(NULL)
+                }
+            }
 
             # Check for finite values in the sign vector
             ok <- is.finite(s)
@@ -435,6 +473,10 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Collapse duplicate SNPs by keeping the one with the smallest p-value (largest absolute z-score)
             D0 <- .collapse_keys(D0)
             if (self$drop_ambiguous) D0 <- D0 %>% filter(!.is_ambiguous(EA, OA))
+
+            # Remove SNPs with zero or unreliable variance/SE
+            D0 <- D0 %>% 
+                filter(is.finite(beta), is.finite(varbeta), varbeta > 0, !is.na(beta), beta != 0)
             
             # Check if there are fewer than 2 SNPs in the dataset and return NULL if so
             if (nrow(D0) < 2) return(NULL)
@@ -845,11 +887,20 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 return(NULL)
             }
 
-            # Load the LD matrix for the locus using the read_ld function
-            ld <- self$read_ld(
-                ld_path  = file.path(self$ld_dir, locus[[self$manifest_ld_key]]),
-                bim_path = file.path(self$ld_dir, locus[[self$manifest_bim_key]]),
-                panel_note = locus[[self$manifest_note_key]])
+            # Check if locus is in MHC region and skip SuSiE analysis if specified in the configuration. Log a message indicating that the locus is being skipped due to being in the MHC region.
+            if (self$skip_MHC & 
+            locus[[self$standardized_chr_key]] == self$MHC_chr &
+            ((locus[[self$manifest_left_bound_key]] >= self$MHC_start & locus[[self$manifest_left_bound_key]] <= self$MHC_end) |
+            (locus[[self$manifest_right_bound_key]] >= self$MHC_start & locus[[self$manifest_right_bound_key]] <= self$MHC_end))) {
+                .log("Skipping SuSiE for locus %s: in MHC region", locus[[self$manifest_locus_id_key]])
+                ld <- NULL
+            } else{
+                # Load the LD matrix for the locus using the read_ld function
+                ld <- self$read_ld(
+                    ld_path  = file.path(self$ld_dir, locus[[self$manifest_ld_key]]),
+                    bim_path = file.path(self$ld_dir, locus[[self$manifest_bim_key]]),
+                    panel_note = locus[[self$manifest_note_key]])
+            }
 
             # Log the number of variants in the LD matrix for both GWAS and QTL datasets, or log a message if the LD matrix is NULL
             if (!is.null(ld)) {
@@ -861,6 +912,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             }
 
             # Build GWAS dataset for SuSiE analysis
+            .log("Building GWAS dataset for SuSiE...")
             gwas_dataset <- self$build_dataset(
                 tbl = locus_gwas,
                 ld = ld, type = "cc",
@@ -876,6 +928,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Run SuSiE for GWAS dataset
             if (!is.null(gwas_dataset) && is.null(gwas_dataset$too_few) && !is.null(gwas_dataset$D)) {
                 n_gwas_ld <- gwas_dataset$n
+                .log("Running SuSiE for GWAS...")
                 gwas_susie_fit <- self$safe_runsusie(
                     D = gwas_dataset$D,
                     label = sprintf("%s GWAS %s", gwas_stratum, locus[[self$manifest_locus_id_key]])
@@ -922,6 +975,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 lead_qtl_p  <- lead_qtl[[self$standardized_p_key]][1] %||% NA_real_
 
                 # Build QTL dataset for SuSiE analysis
+                .log("Building QTL dataset for SuSiE...")
                 gene_qtl_dataset <- self$build_dataset(
                     tbl = gene_qtl,
                     ld = ld,
@@ -938,6 +992,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
                 if (!is.null(gene_qtl_dataset) && is.null(gene_qtl_dataset$too_few) && !is.null(gene_qtl_dataset$D)) {
                     n_qtl_ld <- gene_qtl_dataset$n
+                    .log("Running SuSiE for QTL...")
                     qtl_susie_fit <- self$safe_runsusie(
                         D = gene_qtl_dataset$D,
                         label = sprintf("%s QTL %s/%s", gwas_stratum, locus[[self$manifest_locus_id_key]], gene_id)
@@ -1064,10 +1119,13 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Load GWAS, QTL, and loci data from the specified file paths
             .log("Loading GWAS Summary Statistics...")
             gwas_data <- .load_table(self$gwas_path)
+            .log("GWAS Summary Statistics loaded: %d rows", nrow(gwas_data))
             .log("Loading QTL Summary Statistics...")
             qtl_data <- .load_table(self$qtl_path)
+            .log("QTL Summary Statistics loaded: %d rows", nrow(qtl_data))
             .log("Loading LD Manifest...")
             loci_data <- .load_table(self$ld_manifest_path)
+            .log("LD Manifest loaded: %d rows", nrow(loci_data))
 
             # Add strata columns and fill values if necessary for GWAS and QTL datasets
             if (is.null(self$gwas_strata_key)) {
@@ -1181,14 +1239,14 @@ if (!interactive()) {
     parser$add_argument("--qtl_sample_size", type = "numeric", required = TRUE, help = "Sample size for the QTL dataset")
     parser$add_argument("--qtl_sdY", type = "numeric", default = 1, help = "Standard deviation of the trait for the QTL dataset (optional). Default is 1.")
     parser$add_argument("--ld_manifest", default = "ld_manifest.tsv", help = "File name of the ld manifest file containing locus information (optional). Default is 'ld_manifest.tsv'.")
-    parser$add_argument("--drop_ambiguous", default = TRUE, help = "Drop ambiguous SNPs (A/T or C/G) from the analysis (optional). Default is TRUE.")
+    parser$add_argument("--drop_ambiguous", default = TRUE, type = "logical", help = "Drop ambiguous SNPs (A/T or C/G) from the analysis (optional). Default is TRUE.")
     parser$add_argument("--min_overlap", type = "numeric", default = 50, help = "Minimum number of overlapping SNPs required for colocalization analysis (optional). Default is 50.")
     parser$add_argument("--cred_coverage", type = "numeric", default = 0.95, help = "Credible set coverage for SuSiE analysis (optional). Default is 0.95.")
     parser$add_argument("--pp_h4_threshold", type = "numeric", default = 0.80, help = "Posterior probability threshold for strong colocalization (optional). Default is 0.80.")
     parser$add_argument("--susie_min_snps", type = "numeric", default = 50, help = "Minimum number of SNPs required for SuSiE analysis (optional). Default is 50.")
-    parser$add_argument("--susie_max_iter", type = "numeric", default = 100, help = "Maximum number of iterations for SuSiE analysis (optional). Default is 100.")
+    parser$add_argument("--susie_max_iter", type = "numeric", default = 1000, help = "Maximum number of iterations for SuSiE analysis (optional). Default is 100.")
     parser$add_argument("--susie_l", type = "numeric", default = 10, help = "Maximum number of causal variants for SuSiE analysis (optional). Default is 10.")
-    parser$add_argument("--susie_repeat_until_converged", default = TRUE, help = "Repeat SuSiE until convergence (optional). Default is TRUE.")
+    parser$add_argument("--susie_repeat_until_converged", default = FALSE, type = "logical", help = "Repeat SuSiE until convergence (optional). Default is FALSE.")
     parser$add_argument("--coloc_prior_p1", type = "numeric", default = 1e-4, help = "Prior probability for hypothesis H1 (optional). Default is 1e-4.")
     parser$add_argument("--coloc_prior_p2", type = "numeric", default = 1e-4, help = "Prior probability for hypothesis H2 (optional). Default is 1e-4.")
     parser$add_argument("--coloc_prior_p12", type = "numeric", default = 1e-5, help = "Prior probability for hypothesis H4 (optional). Default is 1e-5.")
@@ -1209,10 +1267,30 @@ if (!interactive()) {
     parser$add_argument("--standardized_var_beta_key", default = "VARBETA", help = "Column name for the standardized variance of beta in the GWAS and QTL summary statistics files (optional). Default is 'VAR_BETA'.")
     parser$add_argument("--standardized_se_key", default = "SE", help = "Column name for the standardized standard error in the GWAS and QTL summary statistics files (optional). Default is 'SE'.")
     parser$add_argument("--standardized_maf_key", default = "MAF", help = "Column name for the standardized minor allele frequency in the GWAS and QTL summary statistics files (optional). Default is 'MAF'.")
+    parser$add_argument("--skip_MHC", default = TRUE, type = "logical", help = "Skip loci in the MHC region (optional). Default is TRUE.")
 
-
-    # Create an instance of the ColocalizationAnalyzer class and run the colocalization analysis
+    # Parse the command line arguments
     args <- parser$parse_args()
+
+    # Print all arguments (including defaults)
+    .log("=== Command Line Arguments ===")
+    for (arg_name in names(args)) {
+        arg_value <- args[[arg_name]]
+        if (is.character(arg_value)) {
+            .log("  %s = '%s'", arg_name, arg_value)
+        } else if (is.logical(arg_value)) {
+            .log("  %s = %s", arg_name, arg_value)
+        } else if (is.numeric(arg_value)) {
+            .log("  %s = %g", arg_name, arg_value)
+        } else {
+            .log("  %s = %s", arg_name, paste(arg_value, collapse = ", "))
+        }
+    }
+    .log("===============================")
+
+    # Create an instance of the ColocalizationAnalyzer class
     analyzer <- ColocalizationAnalyzer$new(args)
+
+    # Run the colocalization analysis
     analyzer$run_coloc_analysis()
 }

@@ -44,6 +44,8 @@ def load_input_data(
                 df = pd.read_table(fp, sep=',', compression='gzip', skiprows=header_lines)
         elif fn.endswith('.xlsx') or fn.endswith('.xls'):
             df = pd.read_excel(fp, skiprows=header_lines)
+        elif fn.endswith('.parquet'):
+            df = pd.read_parquet(fp)
         else:
             raise ValueError(f"Unsupported file format for input file {fp}. Supported formats are: .csv, .csv.gz, .tsv, .tsv.gz, .txt, .txt.gz, .xlsx, .xls")
 
