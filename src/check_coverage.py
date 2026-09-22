@@ -1,6 +1,5 @@
 # Imports 
 import argparse
-import re
 import numpy as np # type: ignore (silences pylance warning)
 import pandas as pd
 from pathlib import Path

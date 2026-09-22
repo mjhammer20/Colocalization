@@ -1,0 +1,31 @@
+name: colocalization
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.11
+  - r=4.3.1
+  - pandas>=1.5.0
+  - numpy>=1.23.0
+  - scipy>=1.9.0
+  - dask>=2023.1.0
+  - distributed>=2023.1.0
+  - pyarrow>=10.0.0
+  - fastparquet>=0.8.0
+  - biopython>=1.81
+  - pysam>=0.20.0
+  - plink=1.90b7.7
+  - bcftools>=1.16
+  - samtools>=1.16
+  - tabix>=0.2.6
+  - bedtools>=2.30
+  - requests>=2.28.0
+  - tqdm>=4.64.0
+  - pytest>=7.2.0
+  - pytest-cov>=4.0.0
+  - xmltodict=1.0.4
+
+  - pip:
+    - snakemake>=7.30.0
+    - sumstats-liftover>=0.0.3
