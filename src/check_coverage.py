@@ -302,7 +302,8 @@ class CoverageCheck:
         self.output_priority_rank_key = "priority_rank"
         self.output_overlap_rank_key = "overlap_rank"
         self.out_qc_dir = args.out_qc_dir
-
+        self.gwas_label = args.gwas_label
+        self.qtl_label = args.qtl_label
 
     def load_bim(self, bim_path: Path) -> pd.DataFrame:
         """
@@ -779,13 +780,13 @@ class CoverageCheck:
         coverage_sorted = coverage_sorted.drop(columns=["_priority_sort", "_overlap_sort"])
 
         # Save the full coverage results to a TSV file in the output QC directory.
-        all_out_fp = Path(self.out_qc_dir, "coverage_by_locus.tsv")
+        all_out_fp = Path(self.out_qc_dir, f"{self.gwas_label}_{self.qtl_label}_coverage_by_locus.tsv")
         coverage_sorted.to_csv(all_out_fp, sep="\t", index=False)
         print(f"Saved coverage results for {len(coverage_sorted)} locus x stratum combinations to {all_out_fp}")
 
         # Save a filtered file containing only loci with "High" or "Medium" review priority to a TSV file in the output QC directory.
         problem = coverage_sorted[coverage_sorted[self.results_review_priority_key].isin(["High", "Medium"])].copy()
-        problem_out_fp = Path(self.out_qc_dir, "problem_loci_ranked.tsv")
+        problem_out_fp = Path(self.out_qc_dir, f"{self.gwas_label}_{self.qtl_label}_problem_loci_ranked.tsv")
         problem.to_csv(problem_out_fp, sep="\t", index=False)
         print(f"Saved problem loci results for {len(problem)} locus x stratum combinations to {problem_out_fp}")
 
@@ -827,7 +828,7 @@ class CoverageCheck:
         )
 
         # Save the locus-level summary to a TSV file in the output QC directory.
-        locus_out_fp = Path(self.out_qc_dir, "coverage_summary_by_locus.tsv")
+        locus_out_fp = Path(self.out_qc_dir, f"{self.gwas_label}_{self.qtl_label}_coverage_summary_by_locus.tsv")
         locus_summary.to_csv(locus_out_fp, sep="\t", index=False)
         print(f"Saved locus summary results for {len(locus_summary)} locus x stratum combinations to {locus_out_fp}")
 
@@ -839,7 +840,7 @@ class CoverageCheck:
             ]]
             .drop_duplicates()
         )
-        missing_ld_out_fp = Path(self.out_qc_dir, "missing_or_empty_ld_loci.tsv")
+        missing_ld_out_fp = Path(self.out_qc_dir, f"{self.gwas_label}_{self.qtl_label}_missing_or_empty_ld_loci.tsv")
         missing_ld.to_csv(missing_ld_out_fp, sep="\t", index=False)
         print(f"Saved missing/empty LD loci results for {len(missing_ld)} loci to {missing_ld_out_fp}")
 
@@ -908,6 +909,8 @@ if __name__ == "__main__":
     parser.add_argument("--high_overlap_min", type=float, default=0.90, help="Minimum coverage proportion to classify as 'High' overlap.")
     parser.add_argument("--medium_overlap_min", type=float, default=0.70, help="Minimum coverage proportion to classify as 'Medium' overlap.")
     parser.add_argument("--out_qc_dir", required=True, help="Path to the output directory where coverage evaluation results will be saved.")
+    parser.add_argument("--gwas_label", default="GWAS", help="Label for GWAS dataset (used in output).")
+    parser.add_argument("--qtl_label", default="QTL", help="Label for QTL dataset (used in output).")
 
     args = parser.parse_args()
     main(args)

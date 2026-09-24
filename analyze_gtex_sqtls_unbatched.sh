@@ -64,6 +64,13 @@ MIN_SNPS_SUSIE=10
 # GTex Tissue Manifest File Parameters
 GTEX_MANIFEST_FILE="/mnt/disks/working/locus_reports/qtl/sqtl/gtex/all_associations/GTEx_Analysis_v11_sQTL_all_associations_prepared/GTEx_tissue_manifest.tsv"
 
+# SuSiE Results Directory (optional, defaults to output directory if not provided)
+SUSIE_RESULTS_DIR="/mnt/disks/output/output/coloc/susie_results"
+
+# Study Labels
+GWAS_LABEL="META6_PD"
+QTL_LABEL="GTEx_v11_sQTLs"
+
 # Loop through each tissue in the GTEx manifest and run workflow
 while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
 
@@ -190,6 +197,9 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
         --min_overlap $MIN_OVERLAP \
         --susie_min_snps $MIN_SNPS_SUSIE \
         --qtl_strata_key $STANDARDIZED_STRATA_KEY \
+        --susie_results_dir $SUSIE_RESULTS_DIR \
+        --gwas_label $GWAS_LABEL \
+        --qtl_label $QTL_LABEL \
         2>&1 | tee $LOGS_OUTPUT_DIR/analyze_coloc.log
 
     # Log Status

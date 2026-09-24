@@ -550,7 +550,7 @@ class SumStatsTransformer:
         if not self.ss_se_key:
             s_se = pd.Series(np.nan, index=self.annotated_df.index)
             m = s_beta.notna() & s_statistic.notna() & (s_statistic != 0)
-            s_se.loc[m] = (s_beta.abs() / s_statistic)[m]
+            s_se.loc[m] = (s_beta.abs() / s_statistic.abs())[m]
             m = s_se.isna() & s_maf.notna() & (self.ss_n > 0) & s_statistic.notna() & (s_statistic != 0)
             s_se.loc[m] = 1 / np.sqrt(2 * s_maf * (1 - s_maf) * (self.ss_n + s_statistic**2))[m]
             self.annotated_df[self.standardized_se_key] = s_se
