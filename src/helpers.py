@@ -65,9 +65,13 @@ def normalize_chromosome(chromosome: str) -> str:
     Returns:
         str: Normalized chromosome representation (e.g., '1', 'X').
     """
-
+    # Remove 'chr' prefix if present
     if chromosome.startswith(('chr', )):
-        return chromosome[3:]
+        chromosome = chromosome[3:]
+
+    # Convert sex chromosomes to numeric representation
+    if chromosome in ['X', 'x','Y', 'y']:
+        chromosome = "23"
     
     return chromosome
 

@@ -48,11 +48,11 @@ STANDARDIZED_SDY_KEY="SDY"
 STANDARDIZED_TISSUE_KEY="TISSUE"
 
 # Output Directories
-OUTPUT_DIR="/mnt/output/output/coloc"
+OUTPUT_DIR="/mnt/output/output/coloc/not_validated"
 QC_OUTPUT_DIR="/mnt/output/output/coloc/qc"
 
-# Run sum_stats_transform.py
-python3 -u src/sum_stats_transform.py \
+# Run standardize_sum_stats.py
+python3 -u src/standardize_sum_stats.py \
     --sum_stats_file $SUM_STATS_FILE \
     --sum_stats_genome_build $SUM_STATS_GENOME_BUILD \
     --loci_file $LOCI_FILE \
@@ -85,4 +85,4 @@ python3 -u src/sum_stats_transform.py \
     --standardized_var_beta_key $STANDARDIZED_VAR_BETA_KEY \
     --loci_left_bound_key $LOCI_LEFT_BOUND_KEY \
     --loci_right_bound_key $LOCI_RIGHT_BOUND_KEY \
-    2>&1 | tee /mnt/output/output/coloc/logs/test_run_sum_stats_transform_gwas.log
+    2>&1 | tee /mnt/output/output/coloc/logs/sum_stats_standardization_gwas_no_dbsnp.log

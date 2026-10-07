@@ -28,4 +28,4 @@ dependencies:
 
   - pip:
     - snakemake>=7.30.0
-    - sumstats-liftover>=0.0.3
+    - sumstats-liftover
