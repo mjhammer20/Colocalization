@@ -343,7 +343,7 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
         --gwas_label $GWAS_LABEL \
         --qtl_label $QTL_LABEL \
         --standardized_gene_id_key $STANDARDIZED_PHENOTYPE_ID_KEY \
-        > "$LOGS_OUTPUT_DIR/analyze_coloc.log" 2>&1
+        2>&1 | tee "$LOGS_OUTPUT_DIR/analyze_coloc.log" > /dev/null
 
     # Log Status
     echo "Finished processing tissue: $TISSUE_NAME"

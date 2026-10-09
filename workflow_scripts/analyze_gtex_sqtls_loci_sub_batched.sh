@@ -94,7 +94,7 @@ LOCI_LEFT_BOUND_KEY="LEFT_500KB"
 LOCI_RIGHT_BOUND_KEY="RIGHT_500KB"
 
 # GWAS Summary Statistics File Parameters
-STANDARDIZED_GWAS_SUM_STATS_FP="/mnt/disks/output/output/coloc/not_validated/GP2_et_al_2025_PD_case_control_EUR_ALL_hg38_rsID.standardized.tsv"
+STANDARDIZED_GWAS_SUM_STATS_FP="/mnt/disks/output/output/coloc/GP2_et_al_2025_PD_case_control_EUR_ALL_hg38_rsID.standardized.tsv"
 GWAS_SAMPLE_SIZE=226196
 GWAS_CASE_FRACTION=0.207306937
 
@@ -116,8 +116,8 @@ STANDARDIZED_VAR_BETA_KEY="VARBETA"
 STANDARDIZED_STRATA_KEY="TISSUE"
 
 # LD Manifest File Parameters
-LD_OUTPUT_DIR="/mnt/disks/output/output/coloc/ld_1kg_full_EUR"
-LD_MANIFEST="ld_manifest.tsv"
+LD_OUTPUT_DIR="/mnt/disks/output/output/coloc/ld_1kg_v3_hg38_EUR"
+LD_MANIFEST="ld_manifest_sub.tsv"
 MANIFEST_LOC_KEY="LOCUS_ID"
 MANIFEST_BIM_KEY="BIM"
 HIGH_OVERLAP_MIN=0.90
@@ -131,10 +131,11 @@ MIN_SNPS_SUSIE=10
 GTEX_MANIFEST_FILE="/mnt/disks/working/locus_reports/qtl/sqtl/gtex/all_associations/GTEx_Analysis_v11_sQTL_all_associations_prepared/GTEx_tissue_manifest.tsv"
 
 # SuSiE Results Directory (optional, defaults to output directory if not provided)
-SUSIE_RESULTS_DIR="/mnt/disks/output/output/coloc/susie_results"
+SUSIE_RESULTS_DIR="/mnt/disks/output/output/coloc/susie_results_1kg_v3_hg38_EUR"
+SUSIE_QC_DIR="/mnt/disks/output/output/coloc/susie_qc"
 
 # Study Labels
-GWAS_LABEL="META6_PD_Corrected"
+GWAS_LABEL="META6_PD_validated"
 QTL_LABEL="GTEx_v11_sQTLs"
 
 # ===== Main Workflow Loop =====
@@ -145,7 +146,7 @@ echo "Total tissues in manifest: $TOTAL_TISSUES"
 
 # Validate and set batch end index
 if [[ -z "$BATCH_END_INDEX" ]]; then
-    BATCH_END_INDEX=$TOTAL_TISSUES
+    BATCH_END_INDEX=$((TOTAL_TISSUES + 1))
 fi
 
 # Validate batch indices
@@ -165,7 +166,7 @@ if [[ $BATCH_START_INDEX -ge $BATCH_END_INDEX ]]; then
 fi
 
 echo "Processing tissues $BATCH_START_INDEX to $BATCH_END_INDEX (batch range: $BATCH_START_INDEX-$BATCH_END_INDEX)"
-echo "Total tissues in batch: $((BATCH_END_INDEX - BATCH_START_INDEX))"
+echo "Total tissues in batch: $((BATCH_END_INDEX - BATCH_START_INDEX + 1))"
 
 # Loop through each tissue in the GTEx manifest and run workflow
 TISSUE_INDEX=0
@@ -186,7 +187,7 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     BATCH_POSITION=$((TISSUE_INDEX - BATCH_START_INDEX + 1))
     TISSUE_NUMBER=$((TISSUE_INDEX + 1))
     echo ""
-    echo "[$BATCH_POSITION/$((BATCH_END_INDEX - BATCH_START_INDEX))] Processing tissue #$TISSUE_NUMBER: $TISSUE_NAME"
+    echo "[$BATCH_POSITION/$((BATCH_END_INDEX - BATCH_START_INDEX + 1))] Processing tissue #$TISSUE_NUMBER: $TISSUE_NAME"
     echo "Tissue: $TISSUE_NAME"
     QTL_SS_N="${sample_size}"
     echo "Sample Size: $QTL_SS_N"
@@ -196,14 +197,17 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     echo "Pre-processed Tissue Summary Statistics Directory: $TISSUE_DIR"
 
     # Output Directories
-    OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_sqtl_sub/${TISSUE_NAME}"
+    PARENT_OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_sqtl_sub_1kg_v3_hg38_EUR/${TISSUE_NAME}"
+    OUTPUT_DIR="${PARENT_OUTPUT_DIR}/validated_gwas"
     TEMP_OUTPUT_DIR="${OUTPUT_DIR}/temp"
-    QC_OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_sqtl_sub/${TISSUE_NAME}/qc"
-    LOGS_OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_sqtl_sub/${TISSUE_NAME}/logs"
+    QC_OUTPUT_DIR="${OUTPUT_DIR}/qc/validated_gwas"
+    LOGS_OUTPUT_DIR="${OUTPUT_DIR}/logs/validated_gwas"
     echo "Output Directory: $OUTPUT_DIR"
     echo "Temporary Output Directory: $TEMP_OUTPUT_DIR"
     echo "QC Output Directory: $QC_OUTPUT_DIR"
     echo "Logs Output Directory: $LOGS_OUTPUT_DIR"
+    echo "SuSiE Results Directory: $SUSIE_RESULTS_DIR"
+    echo "SuSiE QC Directory: $SUSIE_QC_DIR"
 
     # Create output directories if they don't exist
     mkdir -p "${OUTPUT_DIR}"
@@ -211,9 +215,10 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     mkdir -p "${QC_OUTPUT_DIR}"
     mkdir -p "${LOGS_OUTPUT_DIR}"
     mkdir -p "${SUSIE_RESULTS_DIR}"
+    mkdir -p "${SUSIE_QC_DIR}"
 
     # Standardized QTL Summary Statistics File
-    STANDARDIZED_QTL_SUM_STATS_FP="${OUTPUT_DIR}/GTEx_v11_cis_sQTLs_${TISSUE_NAME}.standardized.tsv"
+    STANDARDIZED_QTL_SUM_STATS_FP="${PARENT_OUTPUT_DIR}/GTEx_v11_cis_sQTLs_${TISSUE_NAME}.standardized.tsv"
 
     # Check if the standardized file already exists
     if [[ -f "$STANDARDIZED_QTL_SUM_STATS_FP" ]]; then
@@ -327,6 +332,7 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     fi
    
     # Run analyze_colocalization.R
+    echo "Running analyze_colocalization.R..."
     Rscript src/analyze_colocalization.R \
         --gwas_fp $STANDARDIZED_GWAS_SUM_STATS_FP \
         --qtl_fp $STANDARDIZED_QTL_SUM_STATS_FP \
@@ -335,15 +341,17 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
         --qtl_sample_size $QTL_SS_N \
         --output_dir $OUTPUT_DIR \
         --ld_dir $LD_OUTPUT_DIR \
+        --ld_manifest $LD_MANIFEST \
         --qc_dir $QC_OUTPUT_DIR \
         --min_overlap $MIN_OVERLAP \
         --susie_min_snps $MIN_SNPS_SUSIE \
         --qtl_strata_key $STANDARDIZED_STRATA_KEY \
         --susie_results_dir $SUSIE_RESULTS_DIR \
+        --susie_qc_dir $SUSIE_QC_DIR \
         --gwas_label $GWAS_LABEL \
         --qtl_label $QTL_LABEL \
         --standardized_gene_id_key $STANDARDIZED_PHENOTYPE_ID_KEY \
-        > "$LOGS_OUTPUT_DIR/analyze_coloc.log" 2>&1
+        2>&1 | tee "$LOGS_OUTPUT_DIR/analyze_coloc.log" > /dev/null
 
     # Log Status
     echo "Finished processing tissue: $TISSUE_NAME"

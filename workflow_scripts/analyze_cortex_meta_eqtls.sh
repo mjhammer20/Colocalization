@@ -4,12 +4,12 @@
 ENTREZ_EMAIL="matt@datatecnica.com"
 
 # Input Loci File Parameters
-LOCI_FILE="/mnt/disks/output/output/coloc/meta6_gwas_loci.merged.tsv"
+LOCI_FILE="/mnt/output/output/coloc/meta6_gwas_loci.merged.tsv"
 LOCI_LEFT_BOUND_KEY="LEFT_500KB"
 LOCI_RIGHT_BOUND_KEY="RIGHT_500KB"
 
 # Input Summary Statistics GWAS
-GWAS_SUM_STATS_FILE="/mnt/disks/working/summary_analysis_data/gwas_stats/GP2_et_al_2025_PD_case_control_EUR_ALL_hg38_rsID.txt.gz"
+GWAS_SUM_STATS_FILE="/mnt/working/summary_analysis_data/gwas_stats/GP2_et_al_2025_PD_case_control_EUR_ALL_hg38_rsID.txt.gz"
 GWAS_SUM_STATS_GENOME_BUILD="hg38"
 HEADER_LINES=0
 GWAS_SS_CHR_KEY="chromosome"
@@ -31,7 +31,7 @@ GWAS_SAMPLE_SIZE=226196
 GWAS_CASE_FRACTION=0.207306937
 
 # Input Summary Statistics QTL
-QTL_SUM_STATS_FILE="/mnt/disks/working/locus_reports/qtl/eqtl/amp_ad/raw/Cortex_MetaAnalysis_ROSMAP_CMC_HBCC_Mayo_cis_eQTL_release.csv"
+QTL_SUM_STATS_FILE="/mnt/working/locus_reports/qtl/eqtl/amp_ad/raw/Cortex_MetaAnalysis_ROSMAP_CMC_HBCC_Mayo_cis_eQTL_release.csv"
 QTL_SUM_STATS_GENOME_BUILD="hg19"
 HEADER_LINES=0
 QTL_SS_CHR_KEY="chromosome"
@@ -54,8 +54,8 @@ QTL_SS_STRATA_KEY="region"
 QTL_SAMPLE_SIZE=1694
 
 # Standardized Summary Statistics File Paths
-STANDARDIZED_GWAS_SUM_STATS_FP="/mnt/disks/output/output/coloc/not_validated/GP2_et_al_2025_PD_case_control_EUR_ALL_hg38_rsID.standardized.tsv"
-STANDARDIZED_QTL_SUM_STATS_FP="/mnt/disks/output/output/coloc/amp_ad/cortex_meta/updated_retry/Cortex_MetaAnalysis_ROSMAP_CMC_HBCC_Mayo_cis_eQTL_release.standardized.tsv"
+STANDARDIZED_GWAS_SUM_STATS_FP="/mnt/output/output/coloc/not_validated/GP2_et_al_2025_PD_case_control_EUR_ALL_hg38_rsID.standardized.tsv"
+STANDARDIZED_QTL_SUM_STATS_FP="/mnt/output/output/coloc/amp_ad/cortex_meta/1kg_v3_hg38_EUR/Cortex_MetaAnalysis_ROSMAP_CMC_HBCC_Mayo_cis_eQTL_release.standardized.tsv"
 
 # Standardized Summary Statistics Parameters
 STANDARDIZED_CHR_KEY="CHR"
@@ -74,7 +74,7 @@ STANDARDIZED_VAR_BETA_KEY="VARBETA"
 STANDARDIZED_STRATA_KEY="REGION"
 
 # LD Manifest File Parameters
-LD_OUTPUT_DIR="/mnt/disks/output/output/coloc/ld_1kg_full_EUR"
+LD_OUTPUT_DIR="/mnt/output/output/coloc/ld_1kg_v3_hg38_EUR"
 LD_MANIFEST="ld_manifest.tsv"
 MANIFEST_LOC_KEY="LOCUS_ID"
 MANIFEST_BIM_KEY="BIM"
@@ -86,16 +86,16 @@ MIN_OVERLAP=10
 MIN_SNPS_SUSIE=10
 
 # Directories
-GWAS_OUTPUT_DIR="/mnt/disks/output/output/coloc/not_validated"
-GWAS_QC_OUTPUT_DIR="/mnt/disks/output/output/coloc/not_validated/qc"
-OUTPUT_DIR="/mnt/disks/output/output/coloc/amp_ad/cortex_meta/updated_retry"
-QC_OUTPUT_DIR="/mnt/disks/output/output/coloc/amp_ad/cortex_meta/updated_retry/qc"
-LOGS_OUTPUT_DIR="/mnt/disks/output/output/coloc/amp_ad/cortex_meta/updated_retry/logs"
-SUSIE_RESULTS_DIR="/mnt/disks/output/output/coloc/susie_results"
-SUSIE_QC_DIR="/mnt/disks/output/output/coloc/susie_qc"
+GWAS_OUTPUT_DIR="/mnt/output/output/coloc/not_validated"
+GWAS_QC_OUTPUT_DIR="/mnt/output/output/coloc/not_validated/qc"
+OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta/1kg_v3_hg38_EUR"
+QC_OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta/1kg_v3_hg38_EUR/qc"
+LOGS_OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta/1kg_v3_hg38_EUR/logs"
+SUSIE_RESULTS_DIR="/mnt/output/output/coloc/susie_results_1kg_v3_hg38_EUR"
+SUSIE_QC_DIR="/mnt/output/output/coloc/susie_qc"
 
 # Study Labels
-GWAS_LABEL="META6_PD_Corrected"
+GWAS_LABEL="META6_PD"
 QTL_LABEL="Cortex_Meta"
 
 # Create necessary directories if they don't exist
@@ -188,30 +188,30 @@ echo "Susie QC Directory: $SUSIE_QC_DIR"
 #     > "$LOGS_OUTPUT_DIR/sum_stats_standardization_qtl.log" 2>&1
 
 # Run the check_coverage.py script with the specified parameters
-echo "Running check_coverage.py..."
-python3 -u src/check_coverage.py \
-    --out_ld_dir $LD_OUTPUT_DIR \
-    --ld_manifest $LD_MANIFEST \
-    --standardized_locus_id_key $MANIFEST_LOC_KEY \
-    --standardized_chr_key $STANDARDIZED_CHR_KEY \
-    --standardized_left_bound_key $LOCI_LEFT_BOUND_KEY \
-    --standardized_right_bound_key $LOCI_RIGHT_BOUND_KEY \
-    --standardized_snp_key $STANDARDIZED_VAR_ID_KEY \
-    --standardized_pos_key $STANDARDIZED_POS_KEY \
-    --standardized_var_key $STANDARDIZED_VAR_ID_KEY \
-    --standardized_p_key $STANDARDIZED_P_KEY \
-    --standardized_effect_allele_key $STANDARDIZED_EFFECT_KEY \
-    --standardized_non_effect_allele_key $STANDARDIZED_NON_EFFECT_KEY \
-    --manifest_bim_key $MANIFEST_BIM_KEY \
-    --gwas_fp $STANDARDIZED_GWAS_SUM_STATS_FP \
-    --qtl_fp $STANDARDIZED_QTL_SUM_STATS_FP \
-    --qtl_strata_key $STANDARDIZED_STRATA_KEY \
-    --high_overlap_min $HIGH_OVERLAP_MIN \
-    --medium_overlap_min $MEDIUM_OVERLAP_MIN \
-    --out_qc_dir $QC_OUTPUT_DIR \
-    --gwas_label $GWAS_LABEL \
-    --qtl_label $QTL_LABEL \
-    > "$LOGS_OUTPUT_DIR/check_coverage.log" 2>&1
+# echo "Running check_coverage.py..."
+# python3 -u src/check_coverage.py \
+#     --out_ld_dir $LD_OUTPUT_DIR \
+#     --ld_manifest $LD_MANIFEST \
+#     --standardized_locus_id_key $MANIFEST_LOC_KEY \
+#     --standardized_chr_key $STANDARDIZED_CHR_KEY \
+#     --standardized_left_bound_key $LOCI_LEFT_BOUND_KEY \
+#     --standardized_right_bound_key $LOCI_RIGHT_BOUND_KEY \
+#     --standardized_snp_key $STANDARDIZED_VAR_ID_KEY \
+#     --standardized_pos_key $STANDARDIZED_POS_KEY \
+#     --standardized_var_key $STANDARDIZED_VAR_ID_KEY \
+#     --standardized_p_key $STANDARDIZED_P_KEY \
+#     --standardized_effect_allele_key $STANDARDIZED_EFFECT_KEY \
+#     --standardized_non_effect_allele_key $STANDARDIZED_NON_EFFECT_KEY \
+#     --manifest_bim_key $MANIFEST_BIM_KEY \
+#     --gwas_fp $STANDARDIZED_GWAS_SUM_STATS_FP \
+#     --qtl_fp $STANDARDIZED_QTL_SUM_STATS_FP \
+#     --qtl_strata_key $STANDARDIZED_STRATA_KEY \
+#     --high_overlap_min $HIGH_OVERLAP_MIN \
+#     --medium_overlap_min $MEDIUM_OVERLAP_MIN \
+#     --out_qc_dir $QC_OUTPUT_DIR \
+#     --gwas_label $GWAS_LABEL \
+#     --qtl_label $QTL_LABEL \
+#     > "$LOGS_OUTPUT_DIR/check_coverage.log" 2>&1
 
 # echo "check_coverage.py completed. Log available at $LOGS_OUTPUT_DIR/check_coverage.log"
 

@@ -114,7 +114,7 @@ STANDARDIZED_VAR_BETA_KEY="VARBETA"
 STANDARDIZED_STRATA_KEY="TISSUE"
 
 # LD Manifest File Parameters
-LD_OUTPUT_DIR="/mnt/disks/output/output/coloc/ld_1kg_full_EUR"
+LD_OUTPUT_DIR="/mnt/disks/output/output/coloc/ld_1kg_v3_hg38_EUR"
 LD_MANIFEST="ld_manifest.tsv"
 MANIFEST_LOC_KEY="LOCUS_ID"
 MANIFEST_BIM_KEY="BIM"
@@ -129,10 +129,11 @@ MIN_SNPS_SUSIE=10
 GTEX_MANIFEST_FILE="/mnt/disks/working/locus_reports/qtl/eqtl/gtex/all_associations/GTEx_Analysis_v11_eQTL_all_associations_prepared/GTEx_tissue_manifest.tsv"
 
 # SuSiE Results Directory (optional, defaults to output directory if not provided)
-SUSIE_RESULTS_DIR="/mnt/disks/output/output/coloc/susie_results"
+SUSIE_RESULTS_DIR="/mnt/disks/output/output/coloc/susie_results_1kg_v3_hg38_EUR"
+SUSIE_QC_DIR="/mnt/disks/output/output/coloc/susie_qc"
 
 # Study Labels
-GWAS_LABEL="META6_PD_Corrected"
+GWAS_LABEL="META6_PD"
 QTL_LABEL="GTEx_v11_eQTLs"
 
 # ===== Main Workflow Loop =====
@@ -143,7 +144,7 @@ echo "Total tissues in manifest: $TOTAL_TISSUES"
 
 # Validate and set batch end index
 if [[ -z "$BATCH_END_INDEX" ]]; then
-    BATCH_END_INDEX=$TOTAL_TISSUES
+    BATCH_END_INDEX=$((TOTAL_TISSUES + 1))
 fi
 
 # Validate batch indices
@@ -163,7 +164,7 @@ if [[ $BATCH_START_INDEX -gt $BATCH_END_INDEX ]]; then
 fi
 
 echo "Processing tissues $BATCH_START_INDEX to $BATCH_END_INDEX (batch range: $BATCH_START_INDEX-$BATCH_END_INDEX)"
-echo "Total tissues in batch: $((BATCH_END_INDEX - BATCH_START_INDEX))"
+echo "Total tissues in batch: $((BATCH_END_INDEX - BATCH_START_INDEX + 1))"
 
 # Loop through each tissue in the GTEx manifest and run workflow
 TISSUE_INDEX=0
@@ -184,7 +185,7 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     BATCH_POSITION=$((TISSUE_INDEX - BATCH_START_INDEX + 1))
     TISSUE_NUMBER=$((TISSUE_INDEX + 1))
     echo ""
-    echo "[$BATCH_POSITION/$((BATCH_END_INDEX - BATCH_START_INDEX))] Processing tissue #$TISSUE_NUMBER: $TISSUE_NAME"
+    echo "[$BATCH_POSITION/$((BATCH_END_INDEX - BATCH_START_INDEX + 1))] Processing tissue #$TISSUE_NUMBER: $TISSUE_NAME"
     echo "Tissue: $TISSUE_NAME"
     QTL_SS_N="${sample_size}"
     echo "Sample Size: $QTL_SS_N"
@@ -194,10 +195,10 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     echo "Pre-processed Tissue Summary Statistics Directory: $TISSUE_DIR"
 
     # Output Directories
-    OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex/${TISSUE_NAME}"
+    OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_eqtl/${TISSUE_NAME}"
     TEMP_OUTPUT_DIR="${OUTPUT_DIR}/temp"
-    QC_OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex/${TISSUE_NAME}/qc/corrected"
-    LOGS_OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex/${TISSUE_NAME}/logs/corrected"
+    QC_OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_eqtl/${TISSUE_NAME}/qc"
+    LOGS_OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_eqtl/${TISSUE_NAME}/logs"
     echo "Output Directory: $OUTPUT_DIR"
     echo "Temporary Output Directory: $TEMP_OUTPUT_DIR"
     echo "QC Output Directory: $QC_OUTPUT_DIR"
@@ -331,6 +332,7 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     fi
    
     # Run analyze_colocalization.R
+    echo "Running analyze_colocalization.R..."
     Rscript src/analyze_colocalization.R \
         --gwas_fp $STANDARDIZED_GWAS_SUM_STATS_FP \
         --qtl_fp $STANDARDIZED_QTL_SUM_STATS_FP \
@@ -344,9 +346,10 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
         --susie_min_snps $MIN_SNPS_SUSIE \
         --qtl_strata_key $STANDARDIZED_STRATA_KEY \
         --susie_results_dir $SUSIE_RESULTS_DIR \
+        --susie_qc_dir $SUSIE_QC_DIR \
         --gwas_label $GWAS_LABEL \
         --qtl_label $QTL_LABEL \
-        > "$LOGS_OUTPUT_DIR/analyze_coloc.log" 2>&1
+        2>&1 | tee "$LOGS_OUTPUT_DIR/analyze_coloc.log" > /dev/null
 
     # Log Status
     echo "Finished processing tissue: $TISSUE_NAME"

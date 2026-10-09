@@ -432,17 +432,17 @@ standardized_keys <- list(
 
 # Define locus and gene of interest
 locus <- list(
-    ID = "1:154362070-156992441",
+    ID = "1:52194738-53458606",
     CHR = "1",
-    LEFT_500KB = 154362070,
-    RIGHT_500KB = 156992441
+    LEFT_500KB = 52144738,
+    RIGHT_500KB = 53458606
 )
-gene_id <- "GBAP1"
+gene_id <- "RNF11"
 
 # Define file paths for QTL, LD, and BIM data
-qtl_path <- "/mnt/output/output/coloc/amp_ad/cortex_meta/Cortex_MetaAnalysis_ROSMAP_CMC_HBCC_Mayo_cis_eQTL_release.standardized.updated.tsv"
-ld_path <- "/mnt/output/output/coloc/ld_1kg_v3_hg38_EUR/1_154362070_156992441.gwas.ld"
-bim_path <- "/mnt/output/output/coloc/ld_1kg_v3_hg38_EUR/1_154362070_156992441.gwas.bim"
+qtl_path <- "/mnt/output/output/coloc/amp_ad/cortex_meta/1kg_v3_hg38_EUR/Cortex_MetaAnalysis_ROSMAP_CMC_HBCC_Mayo_cis_eQTL_release.standardized.tsv"
+ld_path <- "/mnt/output/output/coloc/ld_1kg_v3_hg38_EUR/1_52194738_53458606.gwas.ld"
+bim_path <- "/mnt/output/output/coloc/ld_1kg_v3_hg38_EUR/1_52194738_53458606.gwas.bim"
 
 # Load QTL data and filter for the locus and gene of interest
 qtl_data <- .load_table(qtl_path)

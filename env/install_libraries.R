@@ -8,7 +8,8 @@
     "R6",
     "argparse",
     "tools", 
-    "ggplot2"
+    "ggplot2",
+    "R.utils"
 )
 
 .required_bioc <- c(
