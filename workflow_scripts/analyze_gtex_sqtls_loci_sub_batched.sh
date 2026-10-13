@@ -94,7 +94,7 @@ LOCI_LEFT_BOUND_KEY="LEFT_500KB"
 LOCI_RIGHT_BOUND_KEY="RIGHT_500KB"
 
 # GWAS Summary Statistics File Parameters
-STANDARDIZED_GWAS_SUM_STATS_FP="/mnt/disks/output/output/coloc/GP2_et_al_2025_PD_case_control_EUR_ALL_hg38_rsID.standardized.tsv"
+STANDARDIZED_GWAS_SUM_STATS_FP="/mnt/disks/output/output/coloc/not_validated/GP2_et_al_2025_PD_case_control_EUR_ALL_hg38_rsID.standardized.tsv"
 GWAS_SAMPLE_SIZE=226196
 GWAS_CASE_FRACTION=0.207306937
 
@@ -135,7 +135,7 @@ SUSIE_RESULTS_DIR="/mnt/disks/output/output/coloc/susie_results_1kg_v3_hg38_EUR"
 SUSIE_QC_DIR="/mnt/disks/output/output/coloc/susie_qc"
 
 # Study Labels
-GWAS_LABEL="META6_PD_validated"
+GWAS_LABEL="META6_PD"
 QTL_LABEL="GTEx_v11_sQTLs"
 
 # ===== Main Workflow Loop =====
@@ -198,10 +198,10 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
 
     # Output Directories
     PARENT_OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_sqtl_sub_1kg_v3_hg38_EUR/${TISSUE_NAME}"
-    OUTPUT_DIR="${PARENT_OUTPUT_DIR}/validated_gwas"
+    OUTPUT_DIR="${PARENT_OUTPUT_DIR}/updated_susie"
     TEMP_OUTPUT_DIR="${OUTPUT_DIR}/temp"
-    QC_OUTPUT_DIR="${OUTPUT_DIR}/qc/validated_gwas"
-    LOGS_OUTPUT_DIR="${OUTPUT_DIR}/logs/validated_gwas"
+    QC_OUTPUT_DIR="${OUTPUT_DIR}/qc"
+    LOGS_OUTPUT_DIR="${OUTPUT_DIR}/logs"
     echo "Output Directory: $OUTPUT_DIR"
     echo "Temporary Output Directory: $TEMP_OUTPUT_DIR"
     echo "QC Output Directory: $QC_OUTPUT_DIR"

@@ -481,7 +481,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             return(list(s_rss, flag))
         },
 
-        build_dataset = function(tbl, ld, type, N, s = NULL, sdY = NULL, target_allele_key, label) {
+        build_dataset = function(tbl, ld, type, N, s = NULL, sdY = NULL, target_allele_key, label, lead_variant) {
             
             # Builds a dataset for coloc analysis by standardizing column names, collapsing duplicate SNPs, filtering ambiguous SNPs, aligning the LD matrix, and returning a list containing the dataset and the number of SNPs.
 
@@ -494,6 +494,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             #     sdY: An optional numeric value representing the standard deviation of the trait.
             #     target_allele_key: A string indicating the key for the target allele in the input data (e.g., 'EA' for effect allele).
             #     label: A string label for the dataset, used for logging and file naming.
+            #     lead_variant: A string representing the lead variant for the dataset, used for logging and file naming.
 
             # Returns:
             #     A list containing:
@@ -587,38 +588,86 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 if (s_rss > 0.1) {
                     .log("  [%s] WARNING: s_rss is large (%.3f) -> may indicate mismatched LD or allele flips", label, s_rss)
                     if (!is.null(flagged_snps)) {
-                        .log("  [%s] Checking if flagged SNPs explain large s_rss", label, paste(flagged_snps, collapse = ", "))
 
-                        # Create D_no_flagged by removing flagged SNPs from all list components
-                        idx_keep <- !D$snp %in% flagged_snps
-                        D_no_flagged <- list(
-                            beta = D$beta[idx_keep],
-                            varbeta = D$varbeta[idx_keep],
-                            snp = D$snp[idx_keep],
-                            position = D$position[idx_keep],
+                        # Extract indices for flagged SNPs
+                        idx_flagged <- !D$snp %in% flagged_snps
+                        
+                        # Check if flipping the sign of the flagged SNPs resolves the large s_rss. Create a new dataset D_flipped by flipping the sign of the beta and z-scores for the flagged SNPs and run QC on the modified dataset. If s_rss is reduced to below 0.1, log a message indicating that flipping the flagged SNPs explains the large s_rss and update D and s_rss accordingly. Otherwise, log a message indicating that flipping the flagged SNPs does not explain the large s_rss and keep the flagged SNPs in the analysis.
+                        .log("  [%s] Checking if allele flips or strand mismatches explain large s_rss", label, paste(flagged_snps, collapse = ", "))
+                        
+                        # Create a new dataset D_flipped by flipping the sign of the beta and z-scores for the flagged SNPs
+                        D_flipped <- list(
+                            beta = D$beta,
+                            varbeta = D$varbeta,
+                            snp = D$snp,
+                            position = D$position,
                             type = D$type,
                             N = D$N,
-                            LD = D$LD[idx_keep, idx_keep, drop = FALSE],
-                            MAF = D$MAF[idx_keep],
-                            z = D$z[idx_keep]
+                            LD = D$LD,
+                            MAF = D$MAF,
+                            z = D$z
                         )
-                        
+                        D_flipped$beta[idx_flagged] <- -D_flipped$beta[idx_flagged]
+                        D_flipped$z[idx_flagged] <- -D_flipped$z[idx_flagged]
+
                         # Add optional fields if they exist
-                        if (!is.null(D$s)) D_no_flagged$s <- D$s[idx_keep]
-                        if (!is.null(D$sdY)) D_no_flagged$sdY <- D$sdY
+                        if (!is.null(D$s)) D_flipped$s <- D$s
+                        if (!is.null(D$sdY)) D_flipped$sdY <- D$sdY
 
                         # Run QC on the modified dataset
-                        qc_result <- self$susie_qc(D_no_flagged, label)
-                        s_rss_no_flagged <- qc_result[[1]]
-                        if (!is.null(s_rss_no_flagged) && s_rss_no_flagged < 0.1) {
-                            qc_note <- "Flagged SNPs explain large s_rss -> removing flagged SNPs from analysis"
+                        label_flipped <- paste0(label, "_flipped")
+                        qc_result_flipped <- self$susie_qc(D_flipped, label_flipped)
+                        s_rss_flipped <- qc_result_flipped[[1]]
+                        if (!is.null(s_rss_flipped) && s_rss_flipped < 0.1) {
+                            qc_note <- "Allele flips or strand mismatches explain large s_rss -> flipping sign of flagged SNPs in analysis"
                             .log("  %s", qc_note)
-                            D <- D_no_flagged
-                            s_rss <- s_rss_no_flagged
+                            D <- D_flipped
+                            s_rss <- s_rss_flipped
                         } else {
-                            qc_note <- "Flagged SNPs do not explain large s_rss -> keeping flagged SNPs in analysis but results may still be unreliable"
-                            .log("  %s", qc_note)
+                            .log("  [%s] Allele flips or strand mismatches do not explain large s_rss -> check removing flagged SNPs", label)
+
+                            # Check if removing flagged SNPs resolves the large s_rss. If the lead variant is not among the flagged SNPs, create a new dataset D_no_flagged by removing the flagged SNPs and run QC on the modified dataset. If s_rss is reduced to below 0.1, log a message indicating that the flagged SNPs explain the large s_rss and update D and s_rss accordingly. Otherwise, log a message indicating that the flagged SNPs do not explain the large s_rss and keep the flagged SNPs in the analysis.
+                            if (!lead_variant %in% flagged_snps){
+                                .log("  [%s] Checking if removing flagged SNPs resolves large s_rss", label, paste(flagged_snps, collapse = ", "))
+
+                                # Create D_no_flagged by removing flagged SNPs from all list components
+                                D_no_flagged <- list(
+                                    beta = D$beta[idx_flagged],
+                                    varbeta = D$varbeta[idx_flagged],
+                                    snp = D$snp[idx_flagged],
+                                    position = D$position[idx_flagged],
+                                    type = D$type,
+                                    N = D$N,
+                                    LD = D$LD[idx_flagged, idx_flagged, drop = FALSE],
+                                    MAF = D$MAF[idx_flagged],
+                                    z = D$z[idx_flagged]
+                                )
+                                
+                                # Add optional fields if they exist
+                                if (!is.null(D$s)) D_no_flagged$s <- D$s
+                                if (!is.null(D$sdY)) D_no_flagged$sdY <- D$sdY
+
+                                # Run QC on the modified dataset
+                                label_no_flagged <- paste0(label, "_no_flagged")
+                                qc_result <- self$susie_qc(D_no_flagged, label_no_flagged)
+                                s_rss_no_flagged <- qc_result[[1]]
+                                if (!is.null(s_rss_no_flagged) && s_rss_no_flagged < 0.1) {
+                                    qc_note <- "Flagged SNPs explain large s_rss -> removing flagged SNPs from analysis"
+                                    .log("  %s", qc_note)
+                                    D <- D_no_flagged
+                                    s_rss <- s_rss_no_flagged
+                                } else {
+                                    qc_note <- "Flagged SNPs do not explain large s_rss -> keeping flagged SNPs in analysis but results may still be unreliable"
+                                    .log("  %s", qc_note)
+                                }
+                            } else {
+                                qc_note <- "Lead variant is flagged -> keeping flagged SNPs in analysis but results may still be unreliable"
+                                .log("  %s", qc_note)
+                            }
                         }
+                    } else {
+                        qc_note <- "s_rss is large but no flagged SNPs -> results may be unreliable"
+                        .log("  %s", qc_note)
                     }
                 } else {
                     qc_note <- "s_rss is small -> no issues detected"
@@ -720,7 +769,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                         D, coverage = self$cred_coverage, max_iter = self$susie_max_iter, L = self$susie_l,
                         repeat_until_convergence = self$susie_repeat_until_converged
                     ))
-                }, timeout = 300),
+                }, timeout = 600),
                 error = function(e) {
                     if (grepl("timeout", conditionMessage(e), ignore.case = TRUE)) {
                         .log("  [%s] SuSiE timeout -> fall back to SuSiE w/ refined parameters", label)
@@ -776,7 +825,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                         scaled_prior_variance = 0.01,     # Regularization strength (smaller = more regularization)
                         repeat_until_convergence = self$susie_repeat_until_converged
                     ))
-                }, timeout = 300),
+                }, timeout = 600),
                 error = function(e) { 
                     if (grepl("timeout", conditionMessage(e), ignore.case = TRUE)) {
                         .log("  [%s] SuSiE fallback timeout -> skip susie.coloc", label)
@@ -1118,7 +1167,8 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 N = gwas_sample_size,
                 s = gwas_s,
                 target_allele_key = self$gwas_target_allele_key,
-                label = locus_gwas_label
+                label = locus_gwas_label,
+                lead_variant = lead_gwas_variant
             )
 
             # Initialize variables for SuSiE fits and signal counts
@@ -1270,7 +1320,8 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                     N = qtl_sample_size,
                     sdY = qtl_sdY,
                     target_allele_key = self$qtl_target_allele_key,
-                    label = gene_qtl_label
+                    label = gene_qtl_label, 
+                    lead_variant = lead_qtl_variant
                 )
 
                 # Initialize variables for QTL SuSiE fit, LD counts, and signal counts
