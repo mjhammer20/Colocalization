@@ -361,7 +361,6 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
         MHC_start = NULL,
         MHC_end = NULL,
         susie_results_dir = NULL,
-        susie_qc_dir = NULL,
         gwas_label = NULL,
         qtl_label = NULL,
 
@@ -385,7 +384,6 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             self$ld_manifest <- args$ld_manifest
             self$ld_manifest_path <- file.path(self$ld_dir, args$ld_manifest)
             self$susie_results_dir <- args$susie_results_dir %||% self$output_dir
-            self$susie_qc_dir <- args$susie_qc_dir %||% self$output_dir
             self$gwas_label <- args$gwas_label
             self$qtl_label <- args$qtl_label
 
@@ -426,7 +424,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             self$standardized_maf_key <- args$standardized_maf_key
 
             # Tracking
-            self$bucket <- c(susie_pairs = 0L, coloc_abf_pairs = 0L, low = 0L)
+            self$bucket <- c(susie_pairs = 0L, coloc_abf_pairs = 0L, low_overlap = 0L)
 
             # MHC Region
             self$skip_MHC <- args$skip_MHC
@@ -468,10 +466,6 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 .log("  [%s] susie_rss_kriging_rss failed", label)
                 flag <- NULL
             } else {
-                # Save the kriging plot to a file in the susie_qc_dir with a filename based on the label
-                kriging_plot_path <- file.path(self$susie_qc_dir, sprintf("%s_susie_rss_kriging_rss.png", label))
-                .log("  [%s] susie_rss_kriging_rss plot saved to: %s", label, kriging_plot_path)
-                ggsave(filename = kriging_plot_path, plot = krig$plot, width = 6, height = 4)
 
                 # Flag SNPs with absolute standardized Z-score difference greater than 3 and log likelihood ratio greater than 2, indicating possible allele flips
                 flag <- abs(krig$conditional_dist$z_std_diff) > 3 & krig$conditional_dist$logLR > 2
@@ -593,7 +587,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                         idx_flagged <- !D$snp %in% flagged_snps
                         
                         # Check if flipping the sign of the flagged SNPs resolves the large s_rss. Create a new dataset D_flipped by flipping the sign of the beta and z-scores for the flagged SNPs and run QC on the modified dataset. If s_rss is reduced to below 0.1, log a message indicating that flipping the flagged SNPs explains the large s_rss and update D and s_rss accordingly. Otherwise, log a message indicating that flipping the flagged SNPs does not explain the large s_rss and keep the flagged SNPs in the analysis.
-                        .log("  [%s] Checking if allele flips or strand mismatches explain large s_rss", label, paste(flagged_snps, collapse = ", "))
+                        .log("  [%s] Checking if allele flips or strand mismatches explain large s_rss", label)
                         
                         # Create a new dataset D_flipped by flipping the sign of the beta and z-scores for the flagged SNPs
                         D_flipped <- list(
@@ -610,10 +604,6 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                         D_flipped$beta[idx_flagged] <- -D_flipped$beta[idx_flagged]
                         D_flipped$z[idx_flagged] <- -D_flipped$z[idx_flagged]
 
-                        # Add optional fields if they exist
-                        if (!is.null(D$s)) D_flipped$s <- D$s
-                        if (!is.null(D$sdY)) D_flipped$sdY <- D$sdY
-
                         # Run QC on the modified dataset
                         label_flipped <- paste0(label, "_flipped")
                         qc_result_flipped <- self$susie_qc(D_flipped, label_flipped)
@@ -628,7 +618,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
                             # Check if removing flagged SNPs resolves the large s_rss. If the lead variant is not among the flagged SNPs, create a new dataset D_no_flagged by removing the flagged SNPs and run QC on the modified dataset. If s_rss is reduced to below 0.1, log a message indicating that the flagged SNPs explain the large s_rss and update D and s_rss accordingly. Otherwise, log a message indicating that the flagged SNPs do not explain the large s_rss and keep the flagged SNPs in the analysis.
                             if (!lead_variant %in% flagged_snps){
-                                .log("  [%s] Checking if removing flagged SNPs resolves large s_rss", label, paste(flagged_snps, collapse = ", "))
+                                .log("  [%s] Checking if removing flagged SNPs resolves large s_rss", label)
 
                                 # Create D_no_flagged by removing flagged SNPs from all list components
                                 D_no_flagged <- list(
@@ -642,10 +632,6 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                                     MAF = D$MAF[idx_flagged],
                                     z = D$z[idx_flagged]
                                 )
-                                
-                                # Add optional fields if they exist
-                                if (!is.null(D$s)) D_no_flagged$s <- D$s
-                                if (!is.null(D$sdY)) D_no_flagged$sdY <- D$sdY
 
                                 # Run QC on the modified dataset
                                 label_no_flagged <- paste0(label, "_no_flagged")
@@ -679,8 +665,8 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             }
 
             # Add optional parameters s and sdY to the list D if they are not NULL
-            if (!is.null(s)) D$s <- s
-            if (!is.null(sdY)) D$sdY <- sdY
+            if (D$type == "cc" && !is.null(s)) D$s <- s
+            if (D$type == "quant" && !is.null(sdY)) D$sdY <- sdY
             
             # Create a list containing the dataset D and the number of SNPs in D0
             dataset <- list(D = D, n = length(D$snp), flagged_snps = paste0(flagged_snps, collapse = ", ") %||% NA_character_, s_rss = s_rss %||% NA_real_, qc_note = qc_note %||% NA_character_, too_few = FALSE)
@@ -751,50 +737,54 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             #     label: A string label for logging purposes.
 
             # Returns:
-            #     The result of the SuSiE analysis if successful
-            #     "dataset_check_failed" if check_dataset fails (indicating no LD or dataset issues)
-            #     NULL if SuSiE fails, has no credible sets, or other errors occur
+            #     A list containing:
+            #         - fit: The result of the SuSiE analysis if successful, or NULL if there was an error.
+            #         - reason: A string indicating the reason for failure, or NULL if the analysis was successful.
             
             # Check if the dataset is valid for SuSiE analysis using the check_dataset function. If it fails, log the error and return "dataset_check_failed".
             dataset_check <- tryCatch(check_dataset(D, req = "LD"), error = function(e) conditionMessage(e))
             if (!is.null(dataset_check)) {     # NULL means OK
-                .log("  [%s] check_dataset failed with the following error: %s -> skip SuSiE", label, dataset_check)
-                return("dataset_check_failed")
+                ran_susie_reason <- paste0("check_dataset failed")
+                .log("  [%s] %s with the following error: %s -> skip SuSiE", label, ran_susie_reason, dataset_check)
+                return(list(fit = NULL, reason = ran_susie_reason))
             }
 
             # Attempt to run the SuSiE algorithm on the dataset, suppressing warnings and handling errors
             S <- tryCatch(
                 withTimeout({
-                    suppressWarnings(runsusie(
+                    fit <- suppressWarnings(runsusie(
                         D, coverage = self$cred_coverage, max_iter = self$susie_max_iter, L = self$susie_l,
                         repeat_until_convergence = self$susie_repeat_until_converged
                     ))
-                }, timeout = 600),
-                error = function(e) {
-                    if (grepl("timeout", conditionMessage(e), ignore.case = TRUE)) {
-                        .log("  [%s] SuSiE timeout -> fall back to SuSiE w/ refined parameters", label)
+                    list(fit = fit, reason = NULL)
+                }, timeout = 600, cpu = Inf, elapsed = 600),
+                error = function(e) { 
+                    if (inherits(e, "TimeoutException")) {
+                        ran_susie_reason <- "SuSiE timeout"
+                        .log("  [%s] %s -> fall back to SuSiE w/ refined parameters", label, ran_susie_reason)
                     }
                     else {
-                        .log("  [%s] SuSiE error: %s -> fall back to SuSiE w/ refined parameters", label, conditionMessage(e))
+                        ran_susie_reason <- paste0("SuSiE error: ", conditionMessage(e))
+                        .log("  [%s] %s -> fall back to SuSiE w/ refined parameters", label, ran_susie_reason)
                     }
-                    NULL
+                    list(fit = NULL, reason = ran_susie_reason)
                 }
             )
 
             # Check if the SuSiE result is NULL and return NULL if it is
-            if (is.null(S)) {
-                .log("  [%s] SuSiE failed -> fall back to SuSiE w/ refined parameters", label)
-                return(NULL)
+            if (is.null(S$fit)) {
+                return(S)
             }
 
             # Count the number of credible sets in the SuSiE result, handling any errors
-            ncs <- tryCatch(length(S$sets$cs), error = function(e) 0L)
+            ncs <- tryCatch(length(S$fit$sets$cs), error = function(e) 0L)
             .log("  [%s] SuSiE credible sets: %d", label, ncs %||% 0L)
 
             # Return NULL if there are no credible sets, indicating that there is nothing to colocalize
-            if (is.null(ncs) || ncs < 1) {
-                .log("  [%s] SuSiE found no credible sets -> fall back to SuSiE w/ refined parameters", label)
-                return(NULL)
+            if (ncs < 1) {
+                ran_susie_reason <- "SuSiE found no credible sets"
+                .log("  [%s] %s -> fall back to SuSiE w/ refined parameters", label, ran_susie_reason)
+                return(list(fit = NULL, reason = ran_susie_reason))
             }
 
             # Return the SuSiE result
@@ -815,7 +805,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Attempt to run the SuSiE w/ refined parameters on the dataset, suppressing warnings and handling errors
             S <- tryCatch(
                 withTimeout({
-                    suppressWarnings(runsusie(
+                    fit <- suppressWarnings(runsusie(
                         D,
                         coverage = self$cred_coverage, 
                         max_iter = self$susie_max_iter, 
@@ -825,31 +815,34 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                         scaled_prior_variance = 0.01,     # Regularization strength (smaller = more regularization)
                         repeat_until_convergence = self$susie_repeat_until_converged
                     ))
-                }, timeout = 600),
+                    list(fit = fit, reason = NULL)
+                }, timeout = 600, cpu = Inf, elapsed = 600),
                 error = function(e) { 
-                    if (grepl("timeout", conditionMessage(e), ignore.case = TRUE)) {
-                        .log("  [%s] SuSiE fallback timeout -> skip susie.coloc", label)
+                    if (inherits(e, "TimeoutException")) {
+                        ran_susie_reason <- "SuSiE fallback timeout"
+                        .log("  [%s] %s -> skip susie.coloc", label, ran_susie_reason)
                     } else {
-                        .log("  [%s] SuSiE fallback error: %s -> skip susie.coloc", label, conditionMessage(e))
+                        ran_susie_reason <- paste0("SuSiE fallback error: ", conditionMessage(e))
+                        .log("  [%s] %s -> skip susie.coloc", label, ran_susie_reason)
                     }
-                    NULL
+                    list(fit = NULL, reason = ran_susie_reason)
                 }
             )
 
             # Check if the SuSiE result is NULL and return NULL if it is
-            if (is.null(S)) {
-                .log("  [%s] SuSiE fallback failed -> skip susie.coloc", label)
-                return(NULL) 
+            if (is.null(S$fit)) {
+                return(S)
             }
 
             # Count the number of credible sets in the SuSiE result, handling any errors
-            ncs <- tryCatch(length(S$sets$cs), error = function(e) 0L)
+            ncs <- tryCatch(length(S$fit$sets$cs), error = function(e) 0L)
             .log("  [%s] SuSiE fallback credible sets: %d", label, ncs %||% 0L)
 
             # Return NULL if there are no credible sets, indicating that there is nothing to colocalize
-            if (is.null(ncs) || ncs < 1) {
-                .log("  [%s] SuSiE fallback has no credible sets -> skip susie.coloc", label)
-                return(NULL)
+            if (ncs < 1) {
+                ran_susie_reason <- "SuSiE fallback found no credible sets"
+                .log("  [%s] %s -> skip susie.coloc", label, ran_susie_reason)
+                return(list(fit = NULL, reason = ran_susie_reason))
             }
 
             # Return the SuSiE result
@@ -1014,7 +1007,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Check if the number of shared SNPs is less than the minimum overlap required for ABF analysis, and return NULL if so
             if (nrow(shared) < self$min_overlap) {
                 .log("  coloc.abf: too few shared SNPs (%d < %d) -> skip", nrow(shared), self$min_overlap)
-                return(NULL)
+                return(FALSE)
             }
 
             # Collapse duplicate SNPs by calculating the weighted average of beta and variance for both GWAS and QTL datasets
@@ -1041,7 +1034,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Check if the coloc result is NULL and return NULL if it is
             if (is.null(coloc_result)) {
                 .log("  coloc.abf failed -> skip")
-                return(NULL)
+                return(FALSE)
             }
 
             # Extract the summary from the coloc result and initialize the top SNP variable
@@ -1119,7 +1112,9 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
 
             # Reset ran_susie_gwas flag and status for the current locus
             ran_susie_gwas <- FALSE
+            ran_coloc_abf <- FALSE
             ran_susie_gwas_status <- NA_character_
+            ran_coloc_abf_status <- NA_character_
 
             # Filter the GWAS and QTL datasets to include only variants within the specified locus boundaries (chromosome and position range)
             locus_gwas <- gwas_sub %>% filter(
@@ -1176,11 +1171,11 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             n_gwas_signals_susie <- 0L
 
             # Log the number of variants in the GWAS dataset (= number of SNPs in the LD matrix)
-            n_gwas_ld <- gwas_dataset$n
+            n_gwas_ld <- gwas_dataset$n %||% 0L
             .log("  [%s] Variants in GWAS dataset: %d", locus_gwas_label, n_gwas_ld)
 
             # Skip SuSiE analysis if the GWAS dataset has too few variants, logging a message indicating that SuSiE is being skipped due to insufficient variants.
-            if (!is.null(gwas_dataset) && !gwas_dataset$too_few) {
+            if (!is.null(gwas_dataset) && isFALSE(gwas_dataset$too_few)) {
 
                 .log("  [%s] Passed initial checks for GWAS dataset", locus_gwas_label)
     
@@ -1193,7 +1188,8 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                     gwas_susie_fp <- file.path(self$susie_results_dir, sprintf("%s_gwas_susie.rds", locus_gwas_label))
                     if (file.exists(gwas_susie_fp)) {
                         .log("[%s] Loading precomputed SuSiE fit for GWAS from %s", locus_gwas_label, gwas_susie_fp)
-                        gwas_susie_fit <- readRDS(gwas_susie_fp)
+                        gwas_susie_result <- readRDS(gwas_susie_fp)
+                        gwas_susie_fit <- gwas_susie_result$fit
                         n_gwas_signals_susie <- tryCatch(length(gwas_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
                         .log("  [%s] Precomputed SuSiE fit for GWAS credible sets: %d", locus_gwas_label, n_gwas_signals_susie)
                         ran_susie_gwas <- TRUE
@@ -1202,20 +1198,25 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                         # Run SuSiE for GWAS dataset
                         if (!is.null(gwas_dataset$D)) {
                             .log("[%s] Running SuSiE for GWAS...", locus_gwas_label)
-                            gwas_susie_fit <- self$safe_runsusie(
+                            gwas_susie_result <- self$safe_runsusie(
                                 D = gwas_dataset$D,
                                 label = locus_gwas_label
                             )
-                            # Only attempt fallback if we didn't get a "dataset_check_failed" sentinel (indicating LD check failure)
-                            if (is.character(gwas_susie_fit) && gwas_susie_fit == "dataset_check_failed") {
-                                gwas_susie_fit <- NULL  # Set to NULL since we're skipping fallback
-                                ran_susie_gwas_status <- "Dataset check failed"
-                            } else if (is.null(gwas_susie_fit)) {
-                                # Attempt fallback only if safe_runsusie returned NULL (not "dataset_check_failed")
-                                gwas_susie_fit <- self$run_susie_fallback(
+
+                            # Extract the SuSiE fit and status from the result
+                            gwas_susie_fit <- gwas_susie_result$fit
+                            ran_susie_gwas_status <- gwas_susie_result$reason
+
+                            # Only attempt fallback if we didn't get a "check_dataset failed" sentinel (indicating LD check failure)
+                            if (is.null(gwas_susie_fit) && !identical(ran_susie_gwas_status, "check_dataset failed")) {
+                                # Attempt fallback only if safe_runsusie returned NULL (not "check_dataset failed")
+                                gwas_susie_fallback_result <- self$run_susie_fallback(
                                     D = gwas_dataset$D,
                                     label = locus_gwas_label
                                 )
+                                # Extract the SuSiE fit and status from the fallback result
+                                gwas_susie_fit <- gwas_susie_fallback_result$fit
+                                ran_susie_gwas_status <- gwas_susie_fallback_result$reason
                             }
                             n_gwas_signals_susie <- tryCatch(length(gwas_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
                         }
@@ -1223,11 +1224,13 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                         # Save GWAS SuSiE fit and set ran_susie_gwas flag to TRUE
                         if (!is.null(gwas_susie_fit)) {
                             .log("[%s] Saving SuSiE fit for GWAS to %s", locus_gwas_label, gwas_susie_fp)
-                            saveRDS(gwas_susie_fit, gwas_susie_fp)
+                            saveRDS(list(fit = gwas_susie_fit, reason = ran_susie_gwas_status), gwas_susie_fp)
                             ran_susie_gwas <- TRUE
                             ran_susie_gwas_status <- "Succeeded and saved"
                         } else {
-                            ran_susie_gwas_status <- "Failed, check log for details"
+                            if (is.null(ran_susie_gwas_status)) {
+                                ran_susie_gwas_status <- "Failed, check log for details"
+                            }
                         }
                     }
                 } else {
@@ -1329,11 +1332,11 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 n_qtl_signals_susie <- 0L
 
                 # Log the number of variants in the Gene QTL dataset (= number of SNPs in the LD matrix)
-                n_gene_qtl_ld <- gene_qtl_dataset$n
+                n_gene_qtl_ld <- gene_qtl_dataset$n %||% 0L
                 .log("  [%s] Variants in Gene QTL dataset: %d", gene_qtl_label, n_gene_qtl_ld)
 
                 # Skip SuSiE analysis if the Gene QTL dataset has too few variants, logging a message indicating that SuSiE is being skipped due to insufficient variants.
-                if (!is.null(gene_qtl_dataset) && !gene_qtl_dataset$too_few) {
+                if (!is.null(gene_qtl_dataset) && isFALSE(gene_qtl_dataset$too_few)) {
 
                     .log("  [%s] Passed initial checks for Gene QTL dataset", gene_qtl_label)
  
@@ -1346,7 +1349,8 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                         qtl_susie_fp <- file.path(self$susie_results_dir, sprintf("%s_qtl_susie.rds", gene_qtl_label))
                         if (file.exists(qtl_susie_fp)) {
                             .log("[%s] Loading precomputed SuSiE fit for QTL from %s", gene_qtl_label, qtl_susie_fp)
-                            qtl_susie_fit <- readRDS(qtl_susie_fp)
+                            qtl_susie_result <- readRDS(qtl_susie_fp)
+                            qtl_susie_fit <- qtl_susie_result$fit
                             n_qtl_signals_susie <- tryCatch(length(qtl_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
                             .log("  [%s] Precomputed SuSiE fit for QTL credible sets: %d", gene_qtl_label, n_qtl_signals_susie)
                             ran_susie_qtl <- TRUE
@@ -1355,37 +1359,45 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                             # Run SuSiE for QTL dataset
                             if (!is.null(gene_qtl_dataset$D)) {
                                 .log("[%s] Running SuSiE for QTL...", gene_qtl_label)
-                                qtl_susie_fit <- self$safe_runsusie(
+                                qtl_susie_result <- self$safe_runsusie(
                                     D = gene_qtl_dataset$D,
                                     label = gene_qtl_label
                                 )
-                                # Only attempt fallback if we didn't get a "dataset_check_failed" sentinel (indicating LD check failure)
-                                if (is.character(qtl_susie_fit) && qtl_susie_fit == "dataset_check_failed") {
-                                    qtl_susie_fit <- NULL  # Set to NULL since we're skipping fallback
-                                    qtl_susie_fit_status <- "Dataset check failed"
-                                } else if (is.null(qtl_susie_fit)) {
-                                    # Attempt fallback only if safe_runsusie returned NULL (not "dataset_check_failed")
-                                    qtl_susie_fit <- self$run_susie_fallback(
+
+                                # Extract the SuSiE fit and status from the result
+                                qtl_susie_fit <- qtl_susie_result$fit
+                                ran_susie_qtl_status <- qtl_susie_result$reason
+
+                                # Only attempt fallback if we didn't get a "check_dataset failed" sentinel (indicating LD check failure)
+                                if (is.null(qtl_susie_fit) && !identical(ran_susie_qtl_status, "check_dataset failed")) {
+                                    # Attempt fallback only if safe_runsusie returned NULL (not "check_dataset failed")
+                                    qtl_susie_fallback_result <- self$run_susie_fallback(
                                         D = gene_qtl_dataset$D,
                                         label = gene_qtl_label
                                     )
+                                    # Extract the SuSiE fit and status from the fallback result
+                                    qtl_susie_fit <- qtl_susie_fallback_result$fit
+                                    ran_susie_qtl_status <- qtl_susie_fallback_result$reason
                                 }
                                 n_qtl_signals_susie <- tryCatch(length(qtl_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
                             }
 
-                            # Save QTL SuSiE fit and set the ran_susie_qtl flag to TRUE if the fit is not NULL
+                            # Save QTL SuSiE fit and set ran_susie_qtl flag to TRUE
                             if (!is.null(qtl_susie_fit)) {
                                 .log("[%s] Saving SuSiE fit for QTL to %s", gene_qtl_label, qtl_susie_fp)
-                                saveRDS(qtl_susie_fit, qtl_susie_fp)
+                                saveRDS(list(fit = qtl_susie_fit, reason = ran_susie_qtl_status), qtl_susie_fp)
                                 ran_susie_qtl <- TRUE
                                 ran_susie_qtl_status <- "Succeeded and saved"
                             } else {
-                                ran_susie_qtl_status <- "Failed, check log for details"
+                                if (is.null(ran_susie_qtl_status)) {
+                                    ran_susie_qtl_status <- "Failed, check log for details"
+                                }
                             }
                         }
                     } else {
-                        .log("[%s] Skipping SuSiE for QTL due to unreliable LD: estimated s_rss=%.3f > 0.3", gene_qtl_label, gene_qtl_dataset$s_rss)
-                        ran_susie_qtl_status <- sprintf("Skipped due to unreliable LD: estimated s_rss=%.3f > 0.3", gene_qtl_dataset$s_rss)
+                        .log("[%s] Skipping SuSiE for QTL due to unreliable LD: estimated s_rss=%.3f > 0.3", gene_qtl_label, qtl_dataset$s_rss)
+                        ran_susie_qtl_status <- sprintf("Skipped due to unreliable LD: estimated s_rss=%.3f > 0.3", qtl_dataset$s_rss)
+
                     }
                 } else {
                     .log("[%s] Skipping SuSiE for QTL due to too few variants: n_variants=%d < min_variants=%d", gene_qtl_label, n_gene_qtl_ld, self$susie_min_snps)
@@ -1465,7 +1477,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                     n_gwas_ld = n_gwas_ld %||% NA_integer_,
                     n_qtl_ld = n_gene_qtl_ld %||% NA_integer_,
                     ran_susie_gwas = ran_susie_gwas,
-                    susie_gwas_status = ran_susie_gwas_status %||% NA_character_,
+                    ran_susie_gwas_status = ran_susie_gwas_status %||% NA_character_,
                     susie_gwas_qc_note = gwas_dataset$qc_note %||% NA_character_,
                     susie_gwas_too_few_snps = gwas_dataset$too_few %||% NA,
                     susie_gwas_s_rss = gwas_dataset$s_rss %||% NA_real_,
@@ -1489,7 +1501,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             .log("Finished processing locus %s for GWAS stratum %s and QTL stratum %s", locus[[self$manifest_locus_id_key]], gwas_stratum, qtl_stratum)
 
             # Cleanup: remove large objects to free memory
-            rm(locus_gwas, locus_qtl, gwas_dataset, gene_qtl_dataset, gwas_susie_fit, qtl_susie_fit)
+            rm(list = intersect(c("ld", "locus_gwas", "locus_qtl", "gwas_dataset", "gene_qtl_dataset", "gwas_susie_fit", "qtl_susie_fit"), ls()))
             gc(verbose = FALSE, full = TRUE)
 
             # Flush the log to ensure all messages are written to the log file
@@ -1623,8 +1635,8 @@ if (!interactive()) {
     parser$add_argument("--min_overlap", type = "numeric", default = 50, help = "Minimum number of overlapping SNPs required for colocalization analysis (optional). Default is 50.")
     parser$add_argument("--cred_coverage", type = "numeric", default = 0.95, help = "Credible set coverage for SuSiE analysis (optional). Default is 0.95.")
     parser$add_argument("--pp_h4_threshold", type = "numeric", default = 0.70, help = "Posterior probability threshold for strong colocalization (optional). Default is 0.80.")
-    parser$add_argument("--susie_min_snps", type = "numeric", default = 50, help = "Minimum number of SNPs required for SuSiE analysis (optional). Default is 50.")
-    parser$add_argument("--susie_max_iter", type = "numeric", default = 500, help = "Maximum number of iterations for SuSiE analysis (optional). Default is 100.")
+    parser$add_argument("--susie_min_snps", type = "numeric", default = 5, help = "Minimum number of SNPs required for SuSiE analysis (optional). Default is 5.")
+    parser$add_argument("--susie_max_iter", type = "numeric", default = 1000, help = "Maximum number of iterations for SuSiE analysis (optional). Default is 1000.")
     parser$add_argument("--susie_l", type = "numeric", default = 10, help = "Maximum number of causal variants for SuSiE analysis (optional). Default is 10.")
     parser$add_argument("--susie_repeat_until_converged", default = FALSE, type = "logical", help = "Repeat SuSiE until convergence (optional). Default is FALSE.")
     parser$add_argument("--coloc_prior_p1", type = "numeric", default = 1e-4, help = "Prior probability for hypothesis H1 (optional). Default is 1e-4.")
@@ -1649,7 +1661,6 @@ if (!interactive()) {
     parser$add_argument("--standardized_maf_key", default = "MAF", help = "Column name for the standardized minor allele frequency in the GWAS and QTL summary statistics files (optional). Default is 'MAF'.")
     parser$add_argument("--skip_MHC", default = TRUE, type = "logical", help = "Skip loci in the MHC region (optional). Default is TRUE.")
     parser$add_argument("--susie_results_dir", default = NULL, help = "Directory to save SuSiE results (optional). If not provided, SuSiE results will be saved in the output directory.")
-    parser$add_argument("--susie_qc_dir", default = NULL, help = "Directory to save SuSiE QC plots (optional). If not provided, SuSiE QC plots will be saved in the output directory.")
     parser$add_argument("--gwas_label", default = "gwas", help = "Label for the GWAS dataset (optional). If not provided, the default label will be used.")
     parser$add_argument("--qtl_label", default = "qtl", help = "Label for the QTL dataset (optional). If not provided, the default label will be used.")
 

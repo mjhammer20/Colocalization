@@ -128,13 +128,13 @@ MIN_OVERLAP=10
 MIN_SNPS_SUSIE=10
 
 # GTex Tissue Manifest File Parameters
-GTEX_MANIFEST_FILE="/mnt/disks/working/locus_reports/qtl/sqtl/gtex/all_associations/GTEx_Analysis_v11_sQTL_all_associations_prepared/GTEx_tissue_manifest.tsv"
+GTEX_MANIFEST_FILE="/mnt/disks/working/locus_reports/qtl/sqtl/gtex/manifests/GTEx_tissue_manifest.tsv"
 
 # SuSiE Results Directory (optional, defaults to output directory if not provided)
 SUSIE_RESULTS_DIR="/mnt/disks/output/output/coloc/susie_results"
 
 # Study Labels
-GWAS_LABEL="META6_PD_Corrected"
+GWAS_LABEL="META6_PD"
 QTL_LABEL="GTEx_v11_sQTLs"
 
 # ===== Main Workflow Loop =====
@@ -145,7 +145,7 @@ echo "Total tissues in manifest: $TOTAL_TISSUES"
 
 # Validate and set batch end index
 if [[ -z "$BATCH_END_INDEX" ]]; then
-    BATCH_END_INDEX=$TOTAL_TISSUES
+    BATCH_END_INDEX=$((TOTAL_TISSUES))
 fi
 
 # Validate batch indices
@@ -187,19 +187,18 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     TISSUE_NUMBER=$((TISSUE_INDEX + 1))
     echo ""
     echo "[$BATCH_POSITION/$((BATCH_END_INDEX - BATCH_START_INDEX))] Processing tissue #$TISSUE_NUMBER: $TISSUE_NAME"
-    echo "Tissue: $TISSUE_NAME"
     QTL_SS_N="${sample_size}"
     echo "Sample Size: $QTL_SS_N"
     TISSUE_DIR="${tissue_dir}"
     # Replace /mnt/working with /mnt/disks/working (correct path for worker VMs)
     TISSUE_DIR="${TISSUE_DIR//\/mnt\/working/\/mnt\/disks\/working}"
     echo "Pre-processed Tissue Summary Statistics Directory: $TISSUE_DIR"
-
+    
     # Output Directories
-    OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_sqtl/${TISSUE_NAME}"
+    OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_sqtl_1kg_v3_hg38_EUR/${TISSUE_NAME}"
     TEMP_OUTPUT_DIR="${OUTPUT_DIR}/temp"
-    QC_OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_sqtl/${TISSUE_NAME}/qc"
-    LOGS_OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_sqtl/${TISSUE_NAME}/logs"
+    QC_OUTPUT_DIR="${OUTPUT_DIR}/qc"
+    LOGS_OUTPUT_DIR="${OUTPUT_DIR}/logs"
     echo "Output Directory: $OUTPUT_DIR"
     echo "Temporary Output Directory: $TEMP_OUTPUT_DIR"
     echo "QC Output Directory: $QC_OUTPUT_DIR"

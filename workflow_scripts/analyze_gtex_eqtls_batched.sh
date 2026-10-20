@@ -126,7 +126,7 @@ MIN_OVERLAP=10
 MIN_SNPS_SUSIE=10
 
 # GTex Tissue Manifest File Parameters
-GTEX_MANIFEST_FILE="/mnt/disks/working/locus_reports/qtl/eqtl/gtex/all_associations/GTEx_Analysis_v11_eQTL_all_associations_prepared/GTEx_tissue_manifest.tsv"
+GTEX_MANIFEST_FILE='/mnt/disks/working/locus_reports/qtl/eqtl/gtex/manifests/GTEx_tissue_manifest.tsv'
 
 # SuSiE Results Directory (optional, defaults to output directory if not provided)
 SUSIE_RESULTS_DIR="/mnt/disks/output/output/coloc/susie_results_1kg_v3_hg38_EUR"
@@ -144,7 +144,7 @@ echo "Total tissues in manifest: $TOTAL_TISSUES"
 
 # Validate and set batch end index
 if [[ -z "$BATCH_END_INDEX" ]]; then
-    BATCH_END_INDEX=$((TOTAL_TISSUES + 1))
+    BATCH_END_INDEX=$((TOTAL_TISSUES))
 fi
 
 # Validate batch indices
@@ -164,7 +164,7 @@ if [[ $BATCH_START_INDEX -gt $BATCH_END_INDEX ]]; then
 fi
 
 echo "Processing tissues $BATCH_START_INDEX to $BATCH_END_INDEX (batch range: $BATCH_START_INDEX-$BATCH_END_INDEX)"
-echo "Total tissues in batch: $((BATCH_END_INDEX - BATCH_START_INDEX + 1))"
+echo "Total tissues in batch: $((BATCH_END_INDEX - BATCH_START_INDEX))"
 
 # Loop through each tissue in the GTEx manifest and run workflow
 TISSUE_INDEX=0
@@ -185,20 +185,19 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     BATCH_POSITION=$((TISSUE_INDEX - BATCH_START_INDEX + 1))
     TISSUE_NUMBER=$((TISSUE_INDEX + 1))
     echo ""
-    echo "[$BATCH_POSITION/$((BATCH_END_INDEX - BATCH_START_INDEX + 1))] Processing tissue #$TISSUE_NUMBER: $TISSUE_NAME"
-    echo "Tissue: $TISSUE_NAME"
+    echo "[$BATCH_POSITION/$((BATCH_END_INDEX - BATCH_START_INDEX))] Processing tissue #$TISSUE_NUMBER: $TISSUE_NAME"
     QTL_SS_N="${sample_size}"
     echo "Sample Size: $QTL_SS_N"
     TISSUE_DIR="${tissue_dir}"
     # Replace /mnt/working with /mnt/disks/working (correct path for worker VMs)
     TISSUE_DIR="${TISSUE_DIR//\/mnt\/working/\/mnt\/disks\/working}"
     echo "Pre-processed Tissue Summary Statistics Directory: $TISSUE_DIR"
-
+    
     # Output Directories
-    OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_eqtl/${TISSUE_NAME}"
+    OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_eqtl_1kg_v3_hg38_EUR/${TISSUE_NAME}"
     TEMP_OUTPUT_DIR="${OUTPUT_DIR}/temp"
-    QC_OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_eqtl/${TISSUE_NAME}/qc"
-    LOGS_OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_eqtl/${TISSUE_NAME}/logs"
+    QC_OUTPUT_DIR="${OUTPUT_DIR}/qc"
+    LOGS_OUTPUT_DIR="${OUTPUT_DIR}/logs"
     echo "Output Directory: $OUTPUT_DIR"
     echo "Temporary Output Directory: $TEMP_OUTPUT_DIR"
     echo "QC Output Directory: $QC_OUTPUT_DIR"

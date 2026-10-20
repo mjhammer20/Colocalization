@@ -83,16 +83,15 @@ MEDIUM_OVERLAP_MIN=0.70
 
 # Susie Parameters
 MIN_OVERLAP=10
-MIN_SNPS_SUSIE=10
+MIN_SNPS_SUSIE=5
 
 # Directories
 GWAS_OUTPUT_DIR="/mnt/output/output/coloc/not_validated"
 GWAS_QC_OUTPUT_DIR="/mnt/output/output/coloc/not_validated/qc"
-OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta/1kg_v3_hg38_EUR"
-QC_OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta/1kg_v3_hg38_EUR/qc"
-LOGS_OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta/1kg_v3_hg38_EUR/logs"
-SUSIE_RESULTS_DIR="/mnt/output/output/coloc/susie_results_1kg_v3_hg38_EUR"
-SUSIE_QC_DIR="/mnt/output/output/coloc/susie_qc"
+OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta/1kg_v3_hg38_EUR/updated_susie_2"
+QC_OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta/1kg_v3_hg38_EUR/updated_susie_2/qc"
+LOGS_OUTPUT_DIR="/mnt/output/output/coloc/amp_ad/cortex_meta/1kg_v3_hg38_EUR/updated_susie_2/logs"
+SUSIE_RESULTS_DIR="/mnt/output/output/coloc/susie_results_1kg_v3_hg38_EUR_corrected"
 
 # Study Labels
 GWAS_LABEL="META6_PD"
@@ -103,12 +102,10 @@ mkdir -p "$OUTPUT_DIR"
 mkdir -p "$QC_OUTPUT_DIR"
 mkdir -p "$LOGS_OUTPUT_DIR"
 mkdir -p "$SUSIE_RESULTS_DIR"
-mkdir -p "$SUSIE_QC_DIR"
 echo "Output Directory: $OUTPUT_DIR"
 echo "QC Output Directory: $QC_OUTPUT_DIR"
 echo "Logs Output Directory: $LOGS_OUTPUT_DIR"
 echo "Susie Results Directory: $SUSIE_RESULTS_DIR"
-echo "Susie QC Directory: $SUSIE_QC_DIR"
 
 # Run standardize_sum_stats.py
 # echo "Running standardize_sum_stats.py for GWAS..."
@@ -230,7 +227,6 @@ Rscript src/analyze_colocalization.R \
     --susie_min_snps $MIN_SNPS_SUSIE \
     --qtl_strata_key $STANDARDIZED_STRATA_KEY \
     --susie_results_dir $SUSIE_RESULTS_DIR \
-    --susie_qc_dir $SUSIE_QC_DIR \
     --gwas_label $GWAS_LABEL \
     --qtl_label $QTL_LABEL \
     2>&1 | tee "$LOGS_OUTPUT_DIR/analyze_coloc.log"
