@@ -164,8 +164,9 @@ if [[ $BATCH_START_INDEX -gt $BATCH_END_INDEX ]]; then
     exit 1
 fi
 
-echo "Processing tissues $BATCH_START_INDEX to $BATCH_END_INDEX (batch range: $BATCH_START_INDEX-$BATCH_END_INDEX)"
-echo "Total tissues in batch: $((BATCH_END_INDEX - BATCH_START_INDEX))"
+echo "Processing tissues $((BATCH_START_INDEX + 1)) to $((BATCH_END_INDEX + 1)) (batch range: $BATCH_START_INDEX-$BATCH_END_INDEX)"
+BATCH_SIZE=$((BATCH_END_INDEX - BATCH_START_INDEX + 1))
+echo "Total tissues in batch: $BATCH_SIZE"
 
 # Loop through each tissue in the GTEx manifest and run workflow
 TISSUE_INDEX=0
@@ -186,7 +187,7 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     BATCH_POSITION=$((TISSUE_INDEX - BATCH_START_INDEX + 1))
     TISSUE_NUMBER=$((TISSUE_INDEX + 1))
     echo ""
-    echo "[$BATCH_POSITION/$((BATCH_END_INDEX - BATCH_START_INDEX))] Processing tissue #$TISSUE_NUMBER: $TISSUE_NAME"
+    echo "[$BATCH_POSITION/$BATCH_SIZE] Processing tissue #$TISSUE_NUMBER: $TISSUE_NAME"
     QTL_SS_N="${sample_size}"
     echo "Sample Size: $QTL_SS_N"
     TISSUE_DIR="${tissue_dir}"

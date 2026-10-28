@@ -7,10 +7,10 @@ GTEX_MANIFEST_FILE="/mnt/working/locus_reports/qtl/apaQTL/gtex/manifests/GTEx_ti
 TISSUE_COUNTER=0
 
 # Set the parent output directory for GTEx results
-PARENT_OUTPUT_DIR="/mnt/output/output/coloc/gtex_apaQTL_sub_1kg_v3_hg38_EUR"
+PARENT_OUTPUT_DIR="/mnt/output/output/coloc/gtex_apaQTL_1kg_v3_hg38_EUR"
 
 # GTex full tissue merged results file path
-GTEX_FULL_TISSUE_MERGED_RESULTS_FP="${PARENT_OUTPUT_DIR}/meta6_pd_full_gtex_v11_apaQTLS_sub_coloc_all_results_merged_2.tsv"
+GTEX_FULL_TISSUE_MERGED_RESULTS_FP="${PARENT_OUTPUT_DIR}/meta6_pd_full_gtex_v11_apaQTLs_coloc_all_results_merged_2.tsv"
 
 
 if [ -f "$GTEX_FULL_TISSUE_MERGED_RESULTS_FP" ]; then
@@ -25,7 +25,7 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     TISSUE_NAME="${tissue_name}"
 
     # Set output directory for the current tissue
-    TISSUE_OUTPUT_DIR="${PARENT_OUTPUT_DIR}/${TISSUE_NAME}/updated_susie"
+    TISSUE_OUTPUT_DIR="${PARENT_OUTPUT_DIR}/${TISSUE_NAME}"
 
     # Set file paths for the current tissue
     SUSIE_RESULTS_FP="${TISSUE_OUTPUT_DIR}/meta6_pd_full_gtex_v11_apaqtls_susie_coloc_all_results.tsv"

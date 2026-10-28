@@ -4,10 +4,10 @@
 GTEX_MANIFEST_FILE="/mnt/working/locus_reports/qtl/apaQTL/gtex/manifests/GTEx_tissue_manifest.tsv"
 
 # Set the parent output directory for GTEx results
-PARENT_OUTPUT_DIR="/mnt/output/output/coloc/gtex_apaQTL_sub_1kg_v3_hg38_EUR"
+PARENT_OUTPUT_DIR="/mnt/output/output/coloc/gtex_apaQTL_1kg_v3_hg38_EUR"
 
 # GTex full tissue merged results file path
-GTEX_FULL_TISSUE_COLOC_SUMMARY_FP="${PARENT_OUTPUT_DIR}/meta6_pd_full_gtex_v11_apaQTLS_coloc_summary_merged_updated_susie_2.tsv"
+GTEX_FULL_TISSUE_COLOC_SUMMARY_FP="${PARENT_OUTPUT_DIR}/meta6_pd_full_gtex_v11_apaQTLs_coloc_summary_merged_2.tsv"
 
 # Delete the existing full tissue merged results file if it exists
 if [ -f "$GTEX_FULL_TISSUE_COLOC_SUMMARY_FP" ]; then
@@ -22,10 +22,10 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     TISSUE_NAME="${tissue_name}"
 
     # Set output directory for the current tissue
-    TISSUE_OUTPUT_DIR="${PARENT_OUTPUT_DIR}/${TISSUE_NAME}/updated_susie"
+    TISSUE_OUTPUT_DIR="${PARENT_OUTPUT_DIR}/${TISSUE_NAME}"
 
     # Set file paths for the current tissue
-    COLOC_SUMMARY_FP="${TISSUE_OUTPUT_DIR}/qc/meta6_pd_full_gtex_v11_apaqtls_coloc_summary.tsv"
+    COLOC_SUMMARY_FP="${TISSUE_OUTPUT_DIR}/qc/meta6_pd_full_gtex_v11_eqtls_coloc_summary.tsv"
 
     # Initialize the full tissue merged results file if it doesn't exist
     if [ ! -f "$GTEX_FULL_TISSUE_COLOC_SUMMARY_FP" ]; then

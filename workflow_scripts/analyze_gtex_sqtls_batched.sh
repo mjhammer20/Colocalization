@@ -116,7 +116,7 @@ STANDARDIZED_VAR_BETA_KEY="VARBETA"
 STANDARDIZED_STRATA_KEY="TISSUE"
 
 # LD Manifest File Parameters
-LD_OUTPUT_DIR="/mnt/disks/output/output/coloc/ld_1kg_full_EUR"
+LD_OUTPUT_DIR="/mnt/disks/output/output/coloc/ld_1kg_v3_hg38_EUR"
 LD_MANIFEST="ld_manifest.tsv"
 MANIFEST_LOC_KEY="LOCUS_ID"
 MANIFEST_BIM_KEY="BIM"
@@ -131,7 +131,7 @@ MIN_SNPS_SUSIE=10
 GTEX_MANIFEST_FILE="/mnt/disks/working/locus_reports/qtl/sqtl/gtex/manifests/GTEx_tissue_manifest.tsv"
 
 # SuSiE Results Directory (optional, defaults to output directory if not provided)
-SUSIE_RESULTS_DIR="/mnt/disks/output/output/coloc/susie_results"
+SUSIE_RESULTS_DIR="/mnt/disks/output/output/coloc/susie_results_1kg_v3_hg38_EUR_corrected"
 
 # Study Labels
 GWAS_LABEL="META6_PD"
@@ -164,8 +164,9 @@ if [[ $BATCH_START_INDEX -gt $BATCH_END_INDEX ]]; then
     exit 1
 fi
 
-echo "Processing tissues $BATCH_START_INDEX to $BATCH_END_INDEX (batch range: $BATCH_START_INDEX-$BATCH_END_INDEX)"
-echo "Total tissues in batch: $((BATCH_END_INDEX - BATCH_START_INDEX))"
+echo "Processing tissues $(($BATCH_START_INDEX + 1)) to $(($BATCH_END_INDEX + 1)) (batch range: $BATCH_START_INDEX-$BATCH_END_INDEX)"
+BATCH_SIZE=$((BATCH_END_INDEX - BATCH_START_INDEX + 1))
+echo "Total tissues in batch: $BATCH_SIZE"
 
 # Loop through each tissue in the GTEx manifest and run workflow
 TISSUE_INDEX=0
@@ -186,7 +187,7 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     BATCH_POSITION=$((TISSUE_INDEX - BATCH_START_INDEX + 1))
     TISSUE_NUMBER=$((TISSUE_INDEX + 1))
     echo ""
-    echo "[$BATCH_POSITION/$((BATCH_END_INDEX - BATCH_START_INDEX))] Processing tissue #$TISSUE_NUMBER: $TISSUE_NAME"
+    echo "[$BATCH_POSITION/$BATCH_SIZE] Processing tissue #$TISSUE_NUMBER: $TISSUE_NAME"
     QTL_SS_N="${sample_size}"
     echo "Sample Size: $QTL_SS_N"
     TISSUE_DIR="${tissue_dir}"
@@ -195,7 +196,8 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     echo "Pre-processed Tissue Summary Statistics Directory: $TISSUE_DIR"
     
     # Output Directories
-    OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_sqtl_1kg_v3_hg38_EUR/${TISSUE_NAME}"
+    PARENT_OUTPUT_DIR="/mnt/disks/output/output/coloc/gtex_sqtl_1kg_v3_hg38_EUR/${TISSUE_NAME}"
+    OUTPUT_DIR="${PARENT_OUTPUT_DIR}/updated_susie"
     TEMP_OUTPUT_DIR="${OUTPUT_DIR}/temp"
     QC_OUTPUT_DIR="${OUTPUT_DIR}/qc"
     LOGS_OUTPUT_DIR="${OUTPUT_DIR}/logs"
@@ -212,7 +214,7 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     mkdir -p "${SUSIE_RESULTS_DIR}"
 
     # Standardized QTL Summary Statistics File
-    STANDARDIZED_QTL_SUM_STATS_FP="${OUTPUT_DIR}/GTEx_v11_cis_sQTLs_${TISSUE_NAME}.standardized.tsv"
+    STANDARDIZED_QTL_SUM_STATS_FP="${PARENT_OUTPUT_DIR}/GTEx_v11_cis_sQTLs_${TISSUE_NAME}.standardized.tsv"
 
     # Check if the standardized file already exists
     if [[ -f "$STANDARDIZED_QTL_SUM_STATS_FP" ]]; then
