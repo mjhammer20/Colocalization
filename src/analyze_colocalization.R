@@ -129,7 +129,7 @@ suppressPackageStartupMessages({
     # Collapses duplicate SNPs in a data frame by keeping the one with the smallest p-value (largest absolute z-score).
 
     # Args:
-    #     D: A data frame containing SNP information, including 'snp', 'beta', 'varbeta', 'MAF', 'EA', 'OA', and 'POS' columns.
+    #     D: A data frame containing SNP information, including 'snp', 'beta', 'varbeta', 'EAF', 'EA', 'OA', and 'POS' columns.
 
     # Returns:
     #     A data frame with duplicate SNPs collapsed, keeping the one with the smallest p-value (largest absolute z-score).
@@ -140,7 +140,7 @@ suppressPackageStartupMessages({
         dplyr::summarise(
         beta    = sum(beta / varbeta) / sum(1 / varbeta),
         varbeta = 1 / sum(1 / varbeta),
-        MAF     = suppressWarnings(mean(MAF, na.rm = TRUE)),
+        EAF     = suppressWarnings(mean(EAF, na.rm = TRUE)),
         EA      = dplyr::first(EA),     # effect/ALT allele defining beta sign
         OA      = dplyr::first(OA),
         POS     = dplyr::first(POS),
@@ -354,7 +354,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
         standardized_beta_key = NULL,
         standardized_var_beta_key = NULL,
         standardized_se_key = NULL,
-        standardized_maf_key = NULL,
+        standardized_eaf_key = NULL,
         bucket = NULL,
         skip_MHC = NULL,
         MHC_chr = NULL,
@@ -421,7 +421,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             self$standardized_beta_key <- args$standardized_beta_key
             self$standardized_var_beta_key <- args$standardized_var_beta_key
             self$standardized_se_key <- args$standardized_se_key
-            self$standardized_maf_key <- args$standardized_maf_key
+            self$standardized_eaf_key <- args$standardized_eaf_key
 
             # Tracking
             self$bucket <- c(susie_pairs = 0L, coloc_abf_pairs = 0L, low_overlap = 0L)
@@ -480,7 +480,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Builds a dataset for coloc analysis by standardizing column names, collapsing duplicate SNPs, filtering ambiguous SNPs, aligning the LD matrix, and returning a list containing the dataset and the number of SNPs.
 
             # Args:
-            #     tbl: A data frame containing the input data with standardized column names for SNPs, beta, variance of beta, MAF, effect allele, non-effect allele, and position.
+            #     tbl: A data frame containing the input data with standardized column names for SNPs, beta, variance of beta, EAF, effect allele, non-effect allele, and position.
             #     ld: A list containing the LD matrix and allele information (output from .read_ld).
             #     type: A string indicating the type of dataset (e.g., 'quant' for quantitative traits).
             #     N: An integer representing the sample size.
@@ -502,12 +502,12 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             
             .log("  Building dataset for %s", label)
 
-            # Mutate the input table to create a new data frame D0 with standardized column names for SNPs, beta, variance of beta, MAF, effect allele, non-effect allele, and position
+            # Mutate the input table to create a new data frame D0 with standardized column names for SNPs, beta, variance of beta, EAF, effect allele, non-effect allele, and position
             D0 <- tbl %>% transmute(
                 snp = .data[[self$standardized_variant_id_key]],
                 beta = .data[[self$standardized_beta_key]],
                 varbeta = .data[[self$standardized_var_beta_key]],
-                MAF = .data[[self$standardized_maf_key]],
+                EAF = .data[[self$standardized_eaf_key]],
                 EA = .data[[self$standardized_effect_allele_key]],
                 OA = .data[[self$standardized_non_effect_allele_key]],
                 POS = .data[[self$standardized_pos_key]]
@@ -560,7 +560,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 type = type,
                 N = N,
                 LD = LD,
-                MAF = ifelse(is.finite(D0$MAF), D0$MAF, 0.5),
+                EAF = ifelse(is.finite(D0$EAF), D0$EAF, 0.5),
                 z = D0$beta / sqrt(D0$varbeta)
             )
 
@@ -598,7 +598,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                             type = D$type,
                             N = D$N,
                             LD = D$LD,
-                            MAF = D$MAF,
+                            EAF = D$EAF,
                             z = D$z
                         )
                         D_flipped$beta[idx_flagged] <- -D_flipped$beta[idx_flagged]
@@ -629,7 +629,7 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                                     type = D$type,
                                     N = D$N,
                                     LD = D$LD[idx_flagged, idx_flagged, drop = FALSE],
-                                    MAF = D$MAF[idx_flagged],
+                                    EAF = D$EAF[idx_flagged],
                                     z = D$z[idx_flagged]
                                 )
 
@@ -960,9 +960,9 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Runs coloc.abf analysis between GWAS and QTL datasets, filtering for shared SNPs and handling errors.
 
             # Args:
-            #     gwas_table: A data frame containing the GWAS dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
+            #     gwas_table: A data frame containing the GWAS dataset with standardized column names for SNPs, beta, variance of beta, and EAF.
             #     gwas_stratum: A string representing the stratum identifier for the GWAS dataset.
-            #     qtl_table: A data frame containing the QTL dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
+            #     qtl_table: A data frame containing the QTL dataset with standardized column names for SNPs, beta, variance of beta, and EAF.
             #     qtl_stratum: A string representing the stratum identifier for the QTL dataset.
             #     gwas_sample_size: An integer representing the sample size for the GWAS dataset.
             #     gwas_s: An optional numeric vector representing the standard errors of the beta estimates for the GWAS dataset.
@@ -985,14 +985,14 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 snp = .data[[self$standardized_variant_id_key]],
                 gwas_beta = .data[[self$standardized_beta_key]],
                 gwas_variance = .data[[self$standardized_var_beta_key]],
-                gwas_maf = .data[[self$standardized_maf_key]]
+                gwas_eaf = .data[[self$standardized_eaf_key]]
             )
 
             t2 <- qtl_table %>% transmute(
                 snp = .data[[self$standardized_variant_id_key]],
                 qtl_beta = .data[[self$standardized_beta_key]],
                 qtl_variance = .data[[self$standardized_var_beta_key]],
-                qtl_maf = .data[[self$standardized_maf_key]]
+                qtl_eaf = .data[[self$standardized_eaf_key]]
             )
 
             # Identify shared SNPs between the GWAS and QTL datasets, filtering for finite beta and variance values
@@ -1015,17 +1015,17 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 shared <- shared %>% group_by(snp) %>% summarise(
                 gwas_beta = sum(gwas_beta/gwas_variance)/sum(1/gwas_variance), gwas_variance = 1/sum(1/gwas_variance),
                 qtl_beta = sum(qtl_beta/qtl_variance)/sum(1/qtl_variance), qtl_variance = 1/sum(1/qtl_variance),
-                gwas_maf = mean(gwas_maf, na.rm = TRUE), qtl_maf = mean(qtl_maf, na.rm = TRUE), .groups = "drop")
+                gwas_eaf = mean(gwas_eaf, na.rm = TRUE), qtl_eaf = mean(qtl_eaf, na.rm = TRUE), .groups = "drop")
             }
 
-            # Prepare the datasets for coloc.abf analysis, including beta, variance of beta, sample size, case fraction, type, and MAF for both GWAS and QTL datasets
+            # Prepare the datasets for coloc.abf analysis, including beta, variance of beta, sample size, case fraction, type, and EAF for both GWAS and QTL datasets
             d1 <- list(snp = shared$snp, beta = shared$gwas_beta, varbeta = shared$gwas_variance,
                         N = gwas_sample_size, s = gwas_s, type = "cc",
-                        MAF = ifelse(is.finite(shared$gwas_maf), shared$gwas_maf, 0.5))
+                        EAF = ifelse(is.finite(shared$gwas_eaf), shared$gwas_eaf, 0.5))
 
             d2 <- list(snp = shared$snp, beta = shared$qtl_beta, varbeta = shared$qtl_variance,
                         N = qtl_sample_size, type = "quant", sdY = qtl_sdY,
-                        MAF = ifelse(is.finite(shared$qtl_maf), shared$qtl_maf, 0.5))
+                        EAF = ifelse(is.finite(shared$qtl_eaf), shared$qtl_eaf, 0.5))
 
             # Run coloc.abf analysis with the prepared datasets and specified priors, handling any errors
             coloc_result <- tryCatch(coloc.abf(d1, d2, p1 = self$coloc_priors$p1, p2 = self$coloc_priors$p2, p12 = self$coloc_priors$p12),
@@ -1515,8 +1515,8 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             # Runs colocalization analysis between GWAS and QTL datasets for specified loci, processing each locus and recording results.
 
             # Args:
-            #     gwas_data: A data frame containing the GWAS dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
-            #     qtl_data: A data frame containing the QTL dataset with standardized column names for SNPs, beta, variance of beta, and MAF.
+            #     gwas_data: A data frame containing the GWAS dataset with standardized column names for SNPs, beta, variance of beta, and EAF.
+            #     qtl_data: A data frame containing the QTL dataset with standardized column names for SNPs, beta, variance of beta, and EAF.
             #     loci_data: A data frame containing locus information, including locus ID, chromosome, left bound, right bound, and LD file paths.
 
             # Returns:
@@ -1658,7 +1658,7 @@ if (!interactive()) {
     parser$add_argument("--standardized_beta_key", default = "BETA", help = "Column name for the standardized beta in the GWAS and QTL summary statistics files (optional). Default is 'BETA'.")
     parser$add_argument("--standardized_var_beta_key", default = "VARBETA", help = "Column name for the standardized variance of beta in the GWAS and QTL summary statistics files (optional). Default is 'VAR_BETA'.")
     parser$add_argument("--standardized_se_key", default = "SE", help = "Column name for the standardized standard error in the GWAS and QTL summary statistics files (optional). Default is 'SE'.")
-    parser$add_argument("--standardized_maf_key", default = "MAF", help = "Column name for the standardized minor allele frequency in the GWAS and QTL summary statistics files (optional). Default is 'MAF'.")
+    parser$add_argument("--standardized_eaf_key", default = "EAF", help = "Column name for the standardized minor allele frequency in the GWAS and QTL summary statistics files (optional). Default is 'EAF'.")
     parser$add_argument("--skip_MHC", default = TRUE, type = "logical", help = "Skip loci in the MHC region (optional). Default is TRUE.")
     parser$add_argument("--susie_results_dir", default = NULL, help = "Directory to save SuSiE results (optional). If not provided, SuSiE results will be saved in the output directory.")
     parser$add_argument("--gwas_label", default = "gwas", help = "Label for the GWAS dataset (optional). If not provided, the default label will be used.")

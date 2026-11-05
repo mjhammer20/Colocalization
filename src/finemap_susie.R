@@ -112,7 +112,7 @@ suppressPackageStartupMessages({
     # Collapses duplicate SNPs in a data frame by keeping the one with the smallest p-value (largest absolute z-score).
 
     # Args:
-    #     D: A data frame containing SNP information, including 'snp', 'beta', 'varbeta', 'MAF', 'EA', 'OA', and 'POS' columns.
+    #     D: A data frame containing SNP information, including 'snp', 'beta', 'varbeta', 'EAF', 'EA', 'OA', and 'POS' columns.
 
     # Returns:
     #     A data frame with duplicate SNPs collapsed, keeping the one with the smallest p-value (largest absolute z-score).
@@ -124,7 +124,7 @@ suppressPackageStartupMessages({
         beta = sum(beta / varbeta) / sum(1 / varbeta),
         varbeta = 1 / sum(1 / varbeta),
         pval = 2 * pnorm(-abs(beta / sqrt(varbeta))),
-        MAF = suppressWarnings(mean(MAF, na.rm = TRUE)),
+        EAF = suppressWarnings(mean(EAF, na.rm = TRUE)),
         EA = dplyr::first(EA),     # effect/ALT allele defining beta sign
         OA = dplyr::first(OA),
         POS = dplyr::first(POS),
@@ -328,7 +328,7 @@ Finemapper <- R6Class("Finemapper",
         standardized_beta_key = NULL,
         standardized_var_beta_key = NULL,
         standardized_se_key = NULL,
-        standardized_maf_key = NULL,
+        standardized_eaf_key = NULL,
         skip_MHC = NULL,
         MHC_chr = NULL,
         MHC_start = NULL,
@@ -402,7 +402,7 @@ Finemapper <- R6Class("Finemapper",
             self$standardized_beta_key <- args$standardized_beta_key
             self$standardized_var_beta_key <- args$standardized_var_beta_key
             self$standardized_se_key <- args$standardized_se_key
-            self$standardized_maf_key <- args$standardized_maf_key
+            self$standardized_eaf_key <- args$standardized_eaf_key
 
             # MHC Region
             self$skip_MHC <- args$skip_MHC
@@ -458,7 +458,7 @@ Finemapper <- R6Class("Finemapper",
             # Builds a dataset for coloc analysis by standardizing column names, collapsing duplicate SNPs, filtering ambiguous SNPs, aligning the LD matrix, and returning a list containing the dataset and the number of SNPs.
 
             # Args:
-            #     tbl: A data frame containing the input data with standardized column names for SNPs, beta, variance of beta, MAF, effect allele, non-effect allele, and position.
+            #     tbl: A data frame containing the input data with standardized column names for SNPs, beta, variance of beta, EAF, effect allele, non-effect allele, and position.
             #     ld: A list containing the LD matrix and allele information (output from .read_ld).
             #     type: A string indicating the type of dataset (e.g., 'quant' for quantitative traits).
             #     N: An integer representing the sample size.
@@ -483,13 +483,13 @@ Finemapper <- R6Class("Finemapper",
             # Initialize qc_note to NA_character_
             qc_note <- NA_character_
 
-            # Mutate the input table to create a new data frame D0 with standardized column names for SNPs, beta, variance of beta, MAF, effect allele, non-effect allele, and position
+            # Mutate the input table to create a new data frame D0 with standardized column names for SNPs, beta, variance of beta, EAF, effect allele, non-effect allele, and position
             D0 <- tbl %>% transmute(
                 snp = .data[[self$standardized_variant_id_key]],
                 beta = .data[[self$standardized_beta_key]],
                 varbeta = .data[[self$standardized_var_beta_key]],
                 pval = .data[[self$standardized_p_key]],
-                MAF = .data[[self$standardized_maf_key]],
+                EAF = .data[[self$standardized_eaf_key]],
                 EA = .data[[self$standardized_effect_allele_key]],
                 OA = .data[[self$standardized_non_effect_allele_key]],
                 POS = .data[[self$standardized_pos_key]]
@@ -543,7 +543,7 @@ Finemapper <- R6Class("Finemapper",
                 type = type,
                 N = N,
                 LD = LD,
-                MAF = ifelse(is.finite(D0$MAF), D0$MAF, 0.5),
+                EAF = ifelse(is.finite(D0$EAF), D0$EAF, 0.5),
                 z = D0$beta / sqrt(D0$varbeta)
             )
 
@@ -582,7 +582,7 @@ Finemapper <- R6Class("Finemapper",
                             type = D$type,
                             N = D$N,
                             LD = D$LD,
-                            MAF = D$MAF,
+                            EAF = D$EAF,
                             z = D$z
                         )
                         D_flipped$beta[idx_flagged] <- -D_flipped$beta[idx_flagged]
@@ -614,7 +614,7 @@ Finemapper <- R6Class("Finemapper",
                                     type = D$type,
                                     N = D$N,
                                     LD = D$LD[!idx_flagged, !idx_flagged, drop = FALSE],
-                                    MAF = D$MAF[!idx_flagged],
+                                    EAF = D$EAF[!idx_flagged],
                                     z = D$z[!idx_flagged]
                                 )
 
@@ -1032,7 +1032,7 @@ if (!interactive()) {
     parser$add_argument("--standardized_beta_key", default = "BETA", help = "Column name for the standardized beta in the summary statistics files (optional). Default is 'BETA'.")
     parser$add_argument("--standardized_var_beta_key", default = "VARBETA", help = "Column name for the standardized variance of beta in the summary statistics files (optional). Default is 'VAR_BETA'.")
     parser$add_argument("--standardized_se_key", default = "SE", help = "Column name for the standardized standard error in the summary statistics files (optional). Default is 'SE'.")
-    parser$add_argument("--standardized_maf_key", default = "MAF", help = "Column name for the standardized minor allele frequency in the summary statistics files (optional). Default is 'MAF'.")
+    parser$add_argument("--standardized_eaf_key", default = "EAF", help = "Column name for the standardized minor allele frequency in the summary statistics files (optional). Default is 'EAF'.")
     parser$add_argument("--skip_MHC", default = TRUE, type = "logical", help = "Skip loci in the MHC region (optional). Default is TRUE.")
     parser$add_argument("--susie_results_dir", required = TRUE, help = "Directory to save SuSiE results (optional). If not provided, SuSiE results will be saved in the output directory.")
     parser$add_argument("--ss_label", default = "", help = "Label for the summary statistics (optional). If not provided, the default label will be used.")

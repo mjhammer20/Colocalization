@@ -561,7 +561,7 @@ class SumStatsTransformer:
             elif self.ss_n_cases is not None and self.ss_n_controls is not None:
                 self.annotated_df[self.standardized_n_cases_key] = self.ss_n_cases
                 self.annotated_df[self.standardized_n_controls_key] = self.ss_n_controls
-                s_n = pd.Series(self.ss_n_cases + self.ss_n_controls, index=self.annotated_df.index)
+                s_n = pd.Series(self.ss_n_cases + self.ss_n_controls, index=self.annotated_df.index).astype(int)
             elif self.ss_n is not None:
                 s_n = pd.Series(self.ss_n, index=self.annotated_df.index)
             self.annotated_df[self.standardized_n_key] = s_n
@@ -661,7 +661,7 @@ class SumStatsTransformer:
 
             # If dbSNP annotation is skipped, copy the original DataFrame and add a column indicating that dbSNP annotation/validation was skipped
             self.annotated_df = self.ss_df.copy()
-            self.annotated_df[self.dbSNP_validation_key] = "dbSNP annotation/validation skipped"
+            self.annotated_df[self.dbSNP_validation_key] = "NA"
 
         # Resolve each component with per-row fallback via _coalesce:
         # prefer dbSNP values where available, fall back to summary statistics values
@@ -815,45 +815,49 @@ class SumStatsTransformer:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.qc_output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Filter out rows with "NA" in the standardized variant ID column for the standardized output
-        print(f"Number of SNPs that were unable to be standardized: {len(self.transformed_df[self.transformed_df[self.standardized_variant_id_key] == 'NA'])}")
-        standardized_df = self.transformed_df[self.transformed_df[self.standardized_variant_id_key] != "NA"]
-        print(f"Number of SNPs validated against dbSNP: {len(standardized_df[standardized_df[self.dbSNP_validation_key] == 'Validated'])}")
-
-        # Filter out rows that failed dbSNP lookup for the failed dbSNP output
-        annotated_df_failed_dbsnp = self.annotated_df[
-            self.annotated_df.index.isin(self.transformed_df.index) &
-            self.annotated_df.index.isin(standardized_df[standardized_df[self.dbSNP_validation_key] == "Failed dbSNP lookup"].index)
-        ]
-        print(f"Number of SNPs that failed dbSNP lookup: {len(annotated_df_failed_dbsnp)}")
-
-        # Filter out rows with mismatched alleles for the mismatched alleles output
-        annotated_df_mismatched = self.annotated_df[self.annotated_df[self.dbSNP_validation_key].isin(["Position Mismatch", "Allele Mismatch"])]
-        print(f"Number of SNPs with mismatched alleles: {len(annotated_df_mismatched)}")
-
         # Determine the base name for the output files based on the input file name, handling .gz suffix if present
         if self.sum_stats_fp.suffix == ".gz":
             input_file_base = Path(self.sum_stats_fp.stem).stem
         else:
             input_file_base = self.sum_stats_fp.stem
 
+        # Filter out rows with "NA" in the standardized variant ID column for the standardized output
+        print(f"Number of SNPs that were unable to be standardized: {len(self.transformed_df[self.transformed_df[self.standardized_variant_id_key] == 'NA'])}")
+        standardized_df = self.transformed_df[self.transformed_df[self.standardized_variant_id_key] != "NA"]
+
         # Save the standardized DataFrame to a TSV file if it contains any rows
         if len(standardized_df) > 0:
             standardized_fp = Path(f"{self.output_dir}/{input_file_base}.standardized.tsv")
             standardized_df.to_csv(standardized_fp, sep="\t", index=False)
             print(f"Saved standardized summary statistics to {standardized_fp}")
+        
+        if self.annotate_dbSNP:
+            
+            # Log the number of SNPs that were validated against dbSNP
+            print(f"Number of SNPs validated against dbSNP: {len(standardized_df[standardized_df[self.dbSNP_validation_key] == 'Validated'])}")
 
-        # Save the failed dbSNP DataFrame to a TSV file if it contains any rows
-        if len(annotated_df_failed_dbsnp) > 0:
-            failed_dbsnp_fp = Path(f"{self.qc_output_dir}/{input_file_base}.failed_dbsnp.tsv")
-            annotated_df_failed_dbsnp.to_csv(failed_dbsnp_fp, sep="\t", index=False)
-            print(f"Saved failed dbSNP annotations to {failed_dbsnp_fp}")
+            # Filter out rows that failed dbSNP lookup for the failed dbSNP output
+            annotated_df_failed_dbsnp = self.annotated_df[
+                self.annotated_df.index.isin(self.transformed_df.index) &
+                self.annotated_df.index.isin(standardized_df[standardized_df[self.dbSNP_validation_key] == "Failed dbSNP lookup"].index)
+            ]
+            print(f"Number of SNPs that failed dbSNP lookup: {len(annotated_df_failed_dbsnp)}")
 
-        # Save the mismatched alleles DataFrame to a TSV file if it contains any rows
-        if len(annotated_df_mismatched) > 0:
-            mismatched_alleles_fp = Path(f"{self.qc_output_dir}/{input_file_base}.mismatched_alleles.tsv")
-            annotated_df_mismatched.to_csv(mismatched_alleles_fp, sep="\t", index=False)
-            print(f"Saved mismatched alleles to {mismatched_alleles_fp}")
+            # Filter out rows with mismatched alleles for the mismatched alleles output
+            annotated_df_mismatched = self.annotated_df[self.annotated_df[self.dbSNP_validation_key].isin(["Position Mismatch", "Allele Mismatch"])]
+            print(f"Number of SNPs with mismatched alleles: {len(annotated_df_mismatched)}")
+
+            # Save the failed dbSNP DataFrame to a TSV file if it contains any rows
+            if len(annotated_df_failed_dbsnp) > 0:
+                failed_dbsnp_fp = Path(f"{self.qc_output_dir}/{input_file_base}.failed_dbsnp.tsv")
+                annotated_df_failed_dbsnp.to_csv(failed_dbsnp_fp, sep="\t", index=False)
+                print(f"Saved failed dbSNP annotations to {failed_dbsnp_fp}")
+
+            # Save the mismatched alleles DataFrame to a TSV file if it contains any rows
+            if len(annotated_df_mismatched) > 0:
+                mismatched_alleles_fp = Path(f"{self.qc_output_dir}/{input_file_base}.mismatched_alleles.tsv")
+                annotated_df_mismatched.to_csv(mismatched_alleles_fp, sep="\t", index=False)
+                print(f"Saved mismatched alleles to {mismatched_alleles_fp}")
 
 
     def run(self):
@@ -952,9 +956,9 @@ if __name__ == "__main__":
     parser.add_argument("--ss_p_key", type=str, default=None, help="Column name for p-value (optional).")
     parser.add_argument("--ss_beta_key", type=str, default=None, help="Column name for beta coefficient (optional).")
     parser.add_argument("--ss_se_key", type=str, default=None, help="Column name for standard error (optional).")
-    parser.add_argument("--ss_n_cases_key", type=int, default=None, help="Case sample size.")
-    parser.add_argument("--ss_n_controls_key", type=int, default=None, help="Control sample size.")
-    parser.add_argument("--ss_n_key", type=int, default=None, help="Total sample size.")
+    parser.add_argument("--ss_n_cases_key", type=str, default=None, help="Case sample size key.")
+    parser.add_argument("--ss_n_controls_key", type=str, default=None, help="Control sample size key.")
+    parser.add_argument("--ss_n_key", type=str, default=None, help="Total sample size key.")
     parser.add_argument("--ss_n_cases", type=int, default=None, help="Case sample size (optional). Will be used to fill standardized_n_cases_key if ss_n_cases_key is not provided.")
     parser.add_argument("--ss_n_controls", type=int, default=None, help="Control sample size (optional). Will be used to fill standardized_n_controls_key if ss_n_controls_key is not provided.")
     parser.add_argument("--ss_n", type=int, default=None, help="Total sample size (optional). Will be used to fill standardized_n_key if ss_n_key or ss_n_controls_key and ss_n_cases_key are not provided.")
