@@ -3,7 +3,7 @@
 # Configuration
 
 ## LD Manifest File Parameters
-LD_OUTPUT_DIR="/mnt/output/output/coloc/ld_1kg_v3_hg38_EUR"
+LD_OUTPUT_DIR="/mnt/output/output/coloc/ld_1kg_v3_hg38_EUR_updated_processing"
 LD_MANIFEST="ld_manifest.tsv"
 MANIFEST_LOC_KEY="LOCUS_ID"
 MANIFEST_BIM_KEY="BIM"
@@ -16,7 +16,10 @@ SS_TYPE="cc"
 SS_LABEL="META6_PD"
 
 ## Output Directory for Finemap Results
-SUSIE_RESULTS_DIR="/mnt/output/output/coloc/susie_results_1kg_v3_hg38_EUR_direct"
+SUSIE_RESULTS_DIR="/mnt/output/output/coloc/meta6_susie_results_1kg_v3_hg38_EUR_updated"
+
+## SuSiE Parameters
+MAX_ITER=2000
 
 # Create necessary directories if they don't exist
 mkdir -p "$SUSIE_RESULTS_DIR"
@@ -34,6 +37,8 @@ Rscript src/finemap_susie.R \
     --ss_type "$SS_TYPE" \
     --ss_label "$SS_LABEL" \
     --susie_results_dir "$SUSIE_RESULTS_DIR" \
-    2>&1 | tee "$SUSIE_RESULTS_DIR/finemap_susie.log"
+    --susie_max_iter "$MAX_ITER" \
+    --skip_MHC FALSE \
+    2>&1 | tee "$SUSIE_RESULTS_DIR/finemap_susie_sub.log"
 
 echo "Finemapping with susie completed. Results saved in $SUSIE_RESULTS_DIR"

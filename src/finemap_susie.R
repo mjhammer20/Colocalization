@@ -170,7 +170,7 @@ suppressPackageStartupMessages({
     .log("  BIM file loaded: %d variants", nrow(bim))
 
     # Extract chromosome, position, and alleles from the BIM file and create canonical keys
-    # PLINK .bim: V1 chr, V2 id, V3 cM, V4 bp, V5 A1, V6 A2 ; --r counts A1
+    # PLINK .bim: V1 chr, V2 id, V3 cM, V4 bp, V5 A1 (alt), V6 A2 (ref); --r counts A1
     chr <- .norm_chr(bim$V1)
     pos <- as.integer(bim$V4)
     a1  <- toupper(bim$V5)
@@ -249,11 +249,11 @@ suppressPackageStartupMessages({
     tgt <- target_allele[present]
 
     # Align the LD sign to the effect allele
-    # If target allele is the same as the LD panels counted allele (a1, ref), flip is needed
-    # If target allele is the same as the LD panels non-counted allele (a2, alt), no flip is needed
+    # If target allele is the same as the LD panels counted allele (a1, alt), no flip is needed
+    # If target allele is the same as the LD panels non-counted allele (a2, ref), flip is needed
     s <- rep(NA_real_, length(present))
-    s[a1 == tgt] <- -1
-    s[a2 == tgt] <- 1
+    s[a1 == tgt] <- 1
+    s[a2 == tgt] <- -1
 
     # Log allele mismatches. If more than 10% of SNPs have mismatched alleles, return NULL to force fallback to coloc.abf
     unmatched <- sum(is.na(s))
@@ -371,7 +371,8 @@ Finemapper <- R6Class("Finemapper",
                         n_credible_sets = integer(),
                         credible_set_lengths = numeric(),
                         lead_in_credible_sets = logical(),
-                        susie_status = character()
+                        susie_status = character(),
+                        susie_estimated_s_rss = numeric()
                     )
 
             # Parameters
@@ -757,10 +758,10 @@ Finemapper <- R6Class("Finemapper",
                 error = function(e) { 
                     if (inherits(e, "TimeoutException")) {
                         ran_susie_reason <- "SuSiE fallback timeout"
-                        .log("  [%s] %s -> skip susie.coloc", label, ran_susie_reason)
+                        .log("  [%s] %s", label, ran_susie_reason)
                     } else {
                         ran_susie_reason <- paste0("SuSiE fallback error: ", gsub("[\r\n\t ]+", " ", conditionMessage(e)))
-                        .log("  [%s] %s -> skip susie.coloc", label, ran_susie_reason)
+                        .log("  [%s] %s", label, ran_susie_reason)
                     }
                     list(fit = NULL, reason = ran_susie_reason)
                 }
@@ -778,8 +779,7 @@ Finemapper <- R6Class("Finemapper",
             # Return NULL if there are no credible sets, indicating that there is nothing to colocalize
             if (ncs < 1) {
                 ran_susie_reason <- "SuSiE fallback found no credible sets"
-                .log("  [%s] %s -> skip susie.coloc", label, ran_susie_reason)
-                return(list(fit = NULL, reason = ran_susie_reason))
+                .log("  [%s] %s", label, ran_susie_reason)
             }
 
             # Return the SuSiE result
@@ -887,21 +887,21 @@ Finemapper <- R6Class("Finemapper",
                     }
                 }
 
-                # Save SuSiE fit and set ran_susie_gwas flag to TRUE
-                if (!is.null(susie_fit)) {
+                # Plot -log10 P-values (Manhattan plot)
+                tryCatch({
+                    png(file.path(self$susie_results_dir, paste0(locus_label, "_manhattan_plot.png")), width = 1200, height = 600, res = 150)
+                    plot(
+                        x = seq_along(dataset$D$pval),
+                        y = -log10(dataset$D$pval),
+                        xlab = "variable",
+                        ylab = expression(-log[10](P)),
+                        pch = 16, cex = 0.5
+                    )
+                }, error = function(e) .log("  [%s] Manhattan plot failed: %s", locus_label, conditionMessage(e)),
+                finally = if (dev.cur() > 1) dev.off())
 
-                    # Plot -log10 P-values (Manhattan plot)
-                    tryCatch({
-                        png(file.path(self$susie_results_dir, paste0(locus_label, "_manhattan_plot.png")), width = 1200, height = 600, res = 150)
-                        plot(
-                            x = seq_along(dataset$D$pval),
-                            y = -log10(dataset$D$pval),
-                            xlab = "variable",
-                            ylab = expression(-log[10](P)),
-                            pch = 16, cex = 0.5
-                        )
-                    }, error = function(e) .log("  [%s] Manhattan plot failed: %s", locus_label, conditionMessage(e)),
-                    finally = if (dev.cur() > 1) dev.off())
+                # Plot PIP scores, append locus variant info to full variant info dataframe, and save SuSiE fit
+                if (!is.null(susie_fit)) {
 
                     # Plot PIP Scores
                     tryCatch({
@@ -923,7 +923,7 @@ Finemapper <- R6Class("Finemapper",
                         variant_idx = seq_along(susie_fit$pip),
                         variant_id = names(susie_fit$pip),
                         pip = as.numeric(susie_fit$pip),
-                        z = if (is.null(susie_fit$z)) NA_real_ else as.numeric(susie_fit$z),
+                        z = dataset$D$z,
                         cs_id = NA_character_
                     )
 
@@ -961,7 +961,8 @@ Finemapper <- R6Class("Finemapper",
                     n_credible_sets = n_credible_sets,
                     credible_set_lengths = paste(credible_set_lengths, collapse = ","),
                     lead_in_credible_sets = lead_in_credible_sets,
-                    susie_status = susie_status %||% NA_character_
+                    susie_status = susie_status %||% NA_character_,
+                    susie_estimated_s_rss = dataset$s_rss %||% NA_real_
                 )
             ))
 

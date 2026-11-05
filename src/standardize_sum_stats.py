@@ -278,15 +278,20 @@ class SumStatsTransformer:
         print(f"Loading input data from {self.sum_stats_fp}... Built from {self.sum_stats_genome_build}")
         self.ss_df = load_input_data(self.sum_stats_fp, args.header_lines)
         print(f"Loaded input data from {self.sum_stats_fp} with shape: {self.ss_df.shape}")
-        self.loci_fp = Path(args.loci_file)
-        print(f"Loading input data from {self.loci_fp}...")
-        self.loci_df = load_input_data(self.loci_fp, 0)
-        print(f"Loaded input data from {self.loci_fp} with shape: {self.loci_df.shape}")
+        if args.loci_file is not None:
+            self.loci_fp = Path(args.loci_file)
+            print(f"Loading input data from {self.loci_fp}...")
+            self.loci_df = load_input_data(self.loci_fp, 0)
+            print(f"Loaded input data from {self.loci_fp} with shape: {self.loci_df.shape}")
+        else:
+            self.loci_fp = None
+            self.loci_df = pd.DataFrame()
         self.standardized_chr_key = args.standardized_chr_key
         self.loci_left_bound_key = args.loci_left_bound_key
         self.loci_right_bound_key = args.loci_right_bound_key
         self.snps_df = pd.DataFrame()
         self.annotate_dbSNP = args.annotate_dbSNP
+        self.filter_by_loci = args.filter_by_loci
         self.ss_chr_key = args.ss_chr_key
         self.ss_pos_key = args.ss_pos_key
         self.ss_rsid_key = args.ss_rsid_key
@@ -817,10 +822,11 @@ class SumStatsTransformer:
             self.perform_liftover()
             print(f"Liftover complete. New shape: {self.ss_df.shape}")
 
-        # Filter to locus regions
-        print("Filtering summary statistics to specified locus regions...")
-        self.filter_by_expanded_ranges()
-        print(f"Filtered summary stats shape: {self.ss_df.shape}")
+        # Filter to locus regions, if loci file is provided and filtering is requested
+        if self.loci_df is not None and self.filter_by_loci:
+            print("Filtering summary statistics to specified locus regions...")
+            self.filter_by_expanded_ranges()
+            print(f"Filtered summary stats shape: {self.ss_df.shape}")
 
         # Filter out SNPs with p-value > 0.99
         print("Filtering out SNPs with p-value > 0.99...")
@@ -871,12 +877,13 @@ if __name__ == "__main__":
     parser.add_argument("--sum_stats_file", type=str, required=True, help="Path to the input file containing summary statistics.")
     parser.add_argument("--sum_stats_genome_build", type=str, required=True, help="Genome build of the summary statistics (e.g., hg19, hg38).")
     parser.add_argument("--liftover_chain_file", type=str, default=None, help="Path to the liftover chain file for genome build conversion (optional).")
-    parser.add_argument("--loci_file", type=str, required=True, help="Path to the file containing loci information. Output from define_loci.")
+    parser.add_argument("--loci_file", type=str, default=None, help="Path to the file containing loci information. Output from define_loci.")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory to save the output files.")
     parser.add_argument("--qc_output_dir", type=str, required=True, help="Directory to save the QC output files.")
     parser.add_argument("--header_lines", type=int, default=0, help="Number of header lines to skip in the input file.")
     parser.add_argument("--entrez_email", type=str, required=True, help="Email address for NCBI Entrez API.")
     parser.add_argument("--annotate_dbSNP", action="store_true", default=False, help="Whether to annotate SNPs with dbSNP information. Default is False.")
+    parser.add_argument("--filter_by_loci", action="store_true", default=False, help="Whether to filter summary statistics by loci. Default is False.")
     parser.add_argument("--ss_chr_key", type=str, required=True, help="Column name for chromosome.")
     parser.add_argument("--ss_pos_key", type=str, required=True, help="Column name for genomic position.")
     parser.add_argument("--ss_rsid_key", type=str, default=None, help="Column name for rsID (optional).")

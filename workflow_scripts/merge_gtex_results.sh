@@ -1,16 +1,16 @@
 #!/bin/bash
 
 # GTex Tissue Manifest File Parameters
-GTEX_MANIFEST_FILE="/mnt/working/locus_reports/qtl/apaQTL/gtex/manifests/GTEx_tissue_manifest.tsv"
+GTEX_MANIFEST_FILE="/mnt/working/locus_reports/qtl/sqtl/gtex/manifests/GTEx_tissue_manifest.tsv"
 
 # Initialize tissue counter
 TISSUE_COUNTER=0
 
 # Set the parent output directory for GTEx results
-PARENT_OUTPUT_DIR="/mnt/output/output/coloc/gtex_apaQTL_1kg_v3_hg38_EUR"
+PARENT_OUTPUT_DIR="/mnt/output/output/coloc/gtex_sqtl_1kg_v3_hg38_EUR"
 
 # GTex full tissue merged results file path
-GTEX_FULL_TISSUE_MERGED_RESULTS_FP="${PARENT_OUTPUT_DIR}/meta6_pd_full_gtex_v11_apaQTLs_coloc_all_results_merged_2.tsv"
+GTEX_FULL_TISSUE_MERGED_RESULTS_FP="${PARENT_OUTPUT_DIR}/meta6_pd_full_gtex_v11_sqtl_coloc_all_results_merged.tsv"
 
 
 if [ -f "$GTEX_FULL_TISSUE_MERGED_RESULTS_FP" ]; then
@@ -25,12 +25,12 @@ while IFS=$'\t' read -r tissue_name sample_size tissue_dir; do
     TISSUE_NAME="${tissue_name}"
 
     # Set output directory for the current tissue
-    TISSUE_OUTPUT_DIR="${PARENT_OUTPUT_DIR}/${TISSUE_NAME}"
+    TISSUE_OUTPUT_DIR="${PARENT_OUTPUT_DIR}/${TISSUE_NAME}/updated_susie"
 
     # Set file paths for the current tissue
-    SUSIE_RESULTS_FP="${TISSUE_OUTPUT_DIR}/meta6_pd_full_gtex_v11_apaqtls_susie_coloc_all_results.tsv"
-    COLOC_ABF_RESULTS_FP="${TISSUE_OUTPUT_DIR}/meta6_pd_full_gtex_v11_apaqtls_coloc_abf_all_results.tsv"
-    TISSUE_MERGED_RESULTS_FP="${TISSUE_OUTPUT_DIR}/meta6_pd_full_gtex_v11_apaqtls_coloc_all_results_merged_2.tsv"
+    SUSIE_RESULTS_FP="${TISSUE_OUTPUT_DIR}/meta6_pd_full_gtex_v11_sqtls_susie_coloc_all_results.tsv"
+    COLOC_ABF_RESULTS_FP="${TISSUE_OUTPUT_DIR}/meta6_pd_full_gtex_v11_sqtls_coloc_abf_all_results.tsv"
+    TISSUE_MERGED_RESULTS_FP="${TISSUE_OUTPUT_DIR}/meta6_pd_full_gtex_v11_sqtls_coloc_all_results_merged_2.tsv"
 
     # Merge the results for the current tissue
     echo "Merging results for tissue: $TISSUE_NAME"

@@ -3,7 +3,7 @@ import pandas as pd
 
 # Configuration
 gene_symbol_mapping_fp = '/mnt/working/dbs/ensembl/gene_id_mappings.tsv'
-gtex_sQTL_results_fp = '/mnt/working/locus_reports/qtl/sqtl/gtex/results/meta6_pd_full_gtex_v11_sqtls_sub_coloc_all_results_merged.tsv'
+gtex_sQTL_results_fp = '/mnt/output/output/coloc/gtex_sqtl_1kg_v3_hg38_EUR/meta6_pd_full_gtex_v11_sqtl_coloc_all_results_merged.tsv'
 
 # Functions
 def extract_gene_id_from_phenotype_id(phenotype_id):
