@@ -13,20 +13,19 @@ from pathlib import Path
 from http.client import IncompleteRead
 from urllib.error import HTTPError, URLError
 from xml.parsers.expat import ExpatError
-from sumstats_liftover import liftover_df, get_chain_path #type: ignore (silences pylance warning)
+from sumstats_liftover import liftover_df #type: ignore (silences pylance warning)
 from helpers import load_input_data, normalize_chromosome, numeric_series, add_variant_id
 
 
 # ------------------------- Helper Function Definitions -------------------------
 
-def _liftover(df:pd.DataFrame, from_build:str, to_build:str, chr_key:str, pos_key:str) -> pd.DataFrame:
+def _liftover(df:pd.DataFrame, chain_fp: str, chr_key:str, pos_key:str) -> pd.DataFrame:
     """
     Perform liftover of genomic coordinates from one genome build to another.
 
     Args:
         df (pd.DataFrame): The DataFrame containing genomic coordinates.
-        from_build (str): The source genome build (e.g., "hg19").
-        to_build (str): The target genome build (e.g., "hg38").
+        chain_fp (str): The file path to the liftover chain file.
         chr_key (str): The column name for chromosome identifiers.
         pos_key (str): The column name for base pair positions.
 
@@ -34,14 +33,9 @@ def _liftover(df:pd.DataFrame, from_build:str, to_build:str, chr_key:str, pos_ke
         pd.DataFrame: The DataFrame with updated genomic coordinates after liftover.
 
     """
-    # Define chain ref name
-    chain_ref_name = f"{from_build}To{to_build.title()}"
-
-    # Get the path to the chain file for liftover
-    chain_path = get_chain_path(chain_ref_name)
 
     # Perform liftover using the sumstats_liftover library
-    lifted_df = liftover_df(df, chain_path, chrom_col=chr_key, pos_col=pos_key)
+    lifted_df = liftover_df(df, chain_fp, chrom_col=chr_key, pos_col=pos_key)
 
     return lifted_df
 
@@ -280,18 +274,24 @@ class SumStatsTransformer:
         self.qc_output_dir = Path(args.qc_output_dir)
         self.sum_stats_fp = Path(args.sum_stats_file)
         self.sum_stats_genome_build = args.sum_stats_genome_build
+        self.liftover_chain_file = args.liftover_chain_file
         print(f"Loading input data from {self.sum_stats_fp}... Built from {self.sum_stats_genome_build}")
         self.ss_df = load_input_data(self.sum_stats_fp, args.header_lines)
         print(f"Loaded input data from {self.sum_stats_fp} with shape: {self.ss_df.shape}")
-        self.loci_fp = Path(args.loci_file)
-        print(f"Loading input data from {self.loci_fp}...")
-        self.loci_df = load_input_data(self.loci_fp, 0)
-        print(f"Loaded input data from {self.loci_fp} with shape: {self.loci_df.shape}")
+        if args.loci_file is not None:
+            self.loci_fp = Path(args.loci_file)
+            print(f"Loading input data from {self.loci_fp}...")
+            self.loci_df = load_input_data(self.loci_fp, 0)
+            print(f"Loaded input data from {self.loci_fp} with shape: {self.loci_df.shape}")
+        else:
+            self.loci_fp = None
+            self.loci_df = pd.DataFrame()
         self.standardized_chr_key = args.standardized_chr_key
         self.loci_left_bound_key = args.loci_left_bound_key
         self.loci_right_bound_key = args.loci_right_bound_key
         self.snps_df = pd.DataFrame()
         self.annotate_dbSNP = args.annotate_dbSNP
+        self.filter_by_loci = args.filter_by_loci
         self.ss_chr_key = args.ss_chr_key
         self.ss_pos_key = args.ss_pos_key
         self.ss_rsid_key = args.ss_rsid_key
@@ -306,8 +306,10 @@ class SumStatsTransformer:
         self.ss_beta_key = args.ss_beta_key
         self.ss_var_beta_key = args.ss_var_beta_key
         self.ss_gene_id_key = args.ss_gene_id_key
+        self.ss_gene_symbol_key = args.ss_gene_symbol_key
         self.ss_strata_key = args.ss_strata_key
         self.ss_strata_value = args.ss_strata_value
+        self.ss_phenotype_id_key = args.ss_phenotype_id_key
         self.target_genome_build = "hg38"
         self.annotated_df = pd.DataFrame()
         self.dbSNP_rsid_key = "rsID_dbsnp"
@@ -323,6 +325,7 @@ class SumStatsTransformer:
         self.standardized_variant_id_key = args.standardized_variant_id_key
         self.standardized_rsid_key = args.standardized_rsid_key
         self.standardized_gene_id_key = args.standardized_gene_id_key
+        self.standardized_phenotype_id_key = args.standardized_phenotype_id_key
         self.standardized_non_effect_allele_key = args.standardized_non_effect_allele_key
         self.standardized_effect_allele_key = args.standardized_effect_allele_key
         self.standardized_n_key = args.standardized_n_key
@@ -342,7 +345,7 @@ class SumStatsTransformer:
 
         """
         # Perform liftover of summary statistics to target genome build
-        liftover_df = _liftover(self.ss_df, self.sum_stats_genome_build, self.target_genome_build, self.ss_chr_key, self.ss_pos_key)
+        liftover_df = _liftover(self.ss_df, self.liftover_chain_file, self.ss_chr_key, self.ss_pos_key)
 
         # Coalesce the liftover results with the original summary statistics, prioritizing liftover values
         self.ss_df[self.ss_chr_key] = _coalesce(liftover_df, "CHR_LIFT", self.ss_chr_key)
@@ -550,7 +553,7 @@ class SumStatsTransformer:
         if not self.ss_se_key:
             s_se = pd.Series(np.nan, index=self.annotated_df.index)
             m = s_beta.notna() & s_statistic.notna() & (s_statistic != 0)
-            s_se.loc[m] = (s_beta.abs() / s_statistic)[m]
+            s_se.loc[m] = (s_beta.abs() / s_statistic.abs())[m]
             m = s_se.isna() & s_maf.notna() & (self.ss_n > 0) & s_statistic.notna() & (s_statistic != 0)
             s_se.loc[m] = 1 / np.sqrt(2 * s_maf * (1 - s_maf) * (self.ss_n + s_statistic**2))[m]
             self.annotated_df[self.standardized_se_key] = s_se
@@ -652,52 +655,96 @@ class SumStatsTransformer:
             None: The DataFrame is modified in place to include only the standardized columns.
 
         """
-        # Ensure tissue column exists
+        # Ensure strata column exists
         if not self.ss_strata_key:
             if not self.ss_strata_value:
                 self.annotated_df[self.standardized_strata_key] = "NA"
             else:
                 self.annotated_df[self.standardized_strata_key] = self.ss_strata_value
 
-        # Ensure gene ID column exists
-        if not self.ss_gene_id_key:
-            self.annotated_df[self.standardized_gene_id_key] = "NA"
+        # Check if gene symbol column exists, if not, use gene ID column
+        if not self.ss_gene_symbol_key:
+            self.annotated_df[self.standardized_gene_id_key] = self.annotated_df[self.ss_gene_id_key]
 
-        # Build each standardized column with per-row fallback
-        self.transformed_df = pd.DataFrame({
-            self.standardized_chr_key: _coalesce(self.annotated_df, self.standardized_chr_key, None),
-            self.standardized_pos_key: _coalesce(self.annotated_df, self.dbSNP_pos_key, self.ss_pos_key),
-            self.standardized_variant_id_key: _coalesce(self.annotated_df, self.standardized_variant_id_key, None),
-            self.standardized_rsid_key: _coalesce(self.annotated_df, self.ss_rsid_key, self.dbSNP_rsid_key),
-            self.standardized_gene_id_key: _coalesce(self.annotated_df, self.ss_gene_id_key, self.standardized_gene_id_key),
-            self.standardized_non_effect_allele_key: _coalesce(self.annotated_df, self.dbSNP_non_effect_allele_key, self.ss_non_effect_allele_key),
-            self.standardized_effect_allele_key: _coalesce(self.annotated_df, self.dbSNP_effect_allele_key, self.ss_effect_allele_key),
-            self.standardized_p_key: _coalesce(self.annotated_df, self.ss_p_key, self.standardized_p_key),
-            self.standardized_beta_key: _coalesce(self.annotated_df, self.ss_beta_key, self.standardized_beta_key),
-            self.standardized_var_beta_key: _coalesce(self.annotated_df, self.ss_var_beta_key, self.standardized_var_beta_key),
-            self.standardized_se_key: _coalesce(self.annotated_df, self.ss_se_key, self.standardized_se_key),
-            self.standardized_maf_key: _coalesce(self.annotated_df, self.ss_maf_key, self.dbSNP_maf_key),
-            self.standardized_strata_key: _coalesce(self.annotated_df, self.ss_strata_key, self.standardized_strata_key),
-            self.dbSNP_validation_key: _coalesce(self.annotated_df, self.dbSNP_validation_key, None),
-        })
+        # If no phenotype ID column is provided, build standardized sum stats without it
+        if not self.ss_phenotype_id_key:
 
-        # Rename columns to standardized names
-        self.transformed_df.columns = [
-            self.standardized_chr_key,
-            self.standardized_pos_key,
-            self.standardized_variant_id_key,
-            self.standardized_rsid_key,
-            self.standardized_gene_id_key,
-            self.standardized_non_effect_allele_key,
-            self.standardized_effect_allele_key,
-            self.standardized_p_key,
-            self.standardized_beta_key,
-            self.standardized_var_beta_key,
-            self.standardized_se_key,
-            self.standardized_maf_key,
-            self.standardized_strata_key,
-            self.dbSNP_validation_key
-        ]
+            # Build each standardized column with per-row fallback
+            self.transformed_df = pd.DataFrame({
+                self.standardized_chr_key: _coalesce(self.annotated_df, self.standardized_chr_key, None),
+                self.standardized_pos_key: _coalesce(self.annotated_df, self.dbSNP_pos_key, self.ss_pos_key),
+                self.standardized_variant_id_key: _coalesce(self.annotated_df, self.standardized_variant_id_key, None),
+                self.standardized_rsid_key: _coalesce(self.annotated_df, self.ss_rsid_key, self.dbSNP_rsid_key),
+                self.standardized_gene_id_key: _coalesce(self.annotated_df, self.ss_gene_symbol_key, self.standardized_gene_id_key),
+                self.standardized_non_effect_allele_key: _coalesce(self.annotated_df, self.dbSNP_non_effect_allele_key, self.ss_non_effect_allele_key),
+                self.standardized_effect_allele_key: _coalesce(self.annotated_df, self.dbSNP_effect_allele_key, self.ss_effect_allele_key),
+                self.standardized_p_key: _coalesce(self.annotated_df, self.ss_p_key, self.standardized_p_key),
+                self.standardized_beta_key: _coalesce(self.annotated_df, self.ss_beta_key, self.standardized_beta_key),
+                self.standardized_var_beta_key: _coalesce(self.annotated_df, self.ss_var_beta_key, self.standardized_var_beta_key),
+                self.standardized_se_key: _coalesce(self.annotated_df, self.ss_se_key, self.standardized_se_key),
+                self.standardized_maf_key: _coalesce(self.annotated_df, self.ss_maf_key, self.dbSNP_maf_key),
+                self.standardized_strata_key: _coalesce(self.annotated_df, self.ss_strata_key, self.standardized_strata_key),
+                self.dbSNP_validation_key: _coalesce(self.annotated_df, self.dbSNP_validation_key, None),
+            })
+
+            # Rename columns to standardized names
+            self.transformed_df.columns = [
+                self.standardized_chr_key,
+                self.standardized_pos_key,
+                self.standardized_variant_id_key,
+                self.standardized_rsid_key,
+                self.standardized_gene_id_key,
+                self.standardized_non_effect_allele_key,
+                self.standardized_effect_allele_key,
+                self.standardized_p_key,
+                self.standardized_beta_key,
+                self.standardized_var_beta_key,
+                self.standardized_se_key,
+                self.standardized_maf_key,
+                self.standardized_strata_key,
+                self.dbSNP_validation_key
+            ]
+        
+        # If phenotype ID column is provided, build standardized sum stats with it included
+        else:
+            # Build each standardized column with per-row fallback
+            self.transformed_df = pd.DataFrame({
+                self.standardized_chr_key: _coalesce(self.annotated_df, self.standardized_chr_key, None),
+                self.standardized_pos_key: _coalesce(self.annotated_df, self.dbSNP_pos_key, self.ss_pos_key),
+                self.standardized_variant_id_key: _coalesce(self.annotated_df, self.standardized_variant_id_key, None),
+                self.standardized_rsid_key: _coalesce(self.annotated_df, self.ss_rsid_key, self.dbSNP_rsid_key),
+                self.standardized_gene_id_key: _coalesce(self.annotated_df, self.ss_gene_symbol_key, self.standardized_gene_id_key),
+                self.standardized_phenotype_id_key: _coalesce(self.annotated_df, self.ss_phenotype_id_key, None),
+                self.standardized_non_effect_allele_key: _coalesce(self.annotated_df, self.dbSNP_non_effect_allele_key, self.ss_non_effect_allele_key),
+                self.standardized_effect_allele_key: _coalesce(self.annotated_df, self.dbSNP_effect_allele_key, self.ss_effect_allele_key),
+                self.standardized_p_key: _coalesce(self.annotated_df, self.ss_p_key, self.standardized_p_key),
+                self.standardized_beta_key: _coalesce(self.annotated_df, self.ss_beta_key, self.standardized_beta_key),
+                self.standardized_var_beta_key: _coalesce(self.annotated_df, self.ss_var_beta_key, self.standardized_var_beta_key),
+                self.standardized_se_key: _coalesce(self.annotated_df, self.ss_se_key, self.standardized_se_key),
+                self.standardized_maf_key: _coalesce(self.annotated_df, self.ss_maf_key, self.dbSNP_maf_key),
+                self.standardized_strata_key: _coalesce(self.annotated_df, self.ss_strata_key, self.standardized_strata_key),
+                self.dbSNP_validation_key: _coalesce(self.annotated_df, self.dbSNP_validation_key, None),
+            })
+
+            # Rename columns to standardized names
+            self.transformed_df.columns = [
+                self.standardized_chr_key,
+                self.standardized_pos_key,
+                self.standardized_variant_id_key,
+                self.standardized_rsid_key,
+                self.standardized_gene_id_key,
+                self.standardized_phenotype_id_key,
+                self.standardized_non_effect_allele_key,
+                self.standardized_effect_allele_key,
+                self.standardized_p_key,
+                self.standardized_beta_key,
+                self.standardized_var_beta_key,
+                self.standardized_se_key,
+                self.standardized_maf_key,
+                self.standardized_strata_key,
+                self.dbSNP_validation_key
+            ]
+        
 
 
     def save_output(self):
@@ -767,14 +814,19 @@ class SumStatsTransformer:
 
         # Liftover summary statistics to target genome build if necessary
         if self.sum_stats_genome_build != self.target_genome_build:
-            print(f"Liftover from {self.sum_stats_genome_build} to {self.target_genome_build}...")
+            if not self.liftover_chain_file:
+                raise ValueError(f"Liftover chain file must be provided for liftover from {self.sum_stats_genome_build} to {self.target_genome_build}.")
+            if not str(Path(self.liftover_chain_file).stem).lower() in [f'{self.sum_stats_genome_build.lower()}to{self.target_genome_build.lower()}', f'{self.sum_stats_genome_build.lower()}to{self.target_genome_build.lower()}.chain']:
+                raise ValueError(f"Liftover chain file {self.liftover_chain_file} does not match the specified genome builds: {self.sum_stats_genome_build} to {self.target_genome_build}.")
+            print(f"Performing liftover from {self.sum_stats_genome_build} to {self.target_genome_build} using {self.liftover_chain_file}...")
             self.perform_liftover()
             print(f"Liftover complete. New shape: {self.ss_df.shape}")
 
-        # Filter to locus regions
-        print("Filtering summary statistics to specified locus regions...")
-        self.filter_by_expanded_ranges()
-        print(f"Filtered summary stats shape: {self.ss_df.shape}")
+        # Filter to locus regions, if loci file is provided and filtering is requested
+        if self.loci_df is not None and self.filter_by_loci:
+            print("Filtering summary statistics to specified locus regions...")
+            self.filter_by_expanded_ranges()
+            print(f"Filtered summary stats shape: {self.ss_df.shape}")
 
         # Filter out SNPs with p-value > 0.99
         print("Filtering out SNPs with p-value > 0.99...")
@@ -824,16 +876,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Transform summary statistics to standardized format.")
     parser.add_argument("--sum_stats_file", type=str, required=True, help="Path to the input file containing summary statistics.")
     parser.add_argument("--sum_stats_genome_build", type=str, required=True, help="Genome build of the summary statistics (e.g., hg19, hg38).")
-    parser.add_argument("--loci_file", type=str, required=True, help="Path to the file containing loci information. Output from define_loci.")
+    parser.add_argument("--liftover_chain_file", type=str, default=None, help="Path to the liftover chain file for genome build conversion (optional).")
+    parser.add_argument("--loci_file", type=str, default=None, help="Path to the file containing loci information. Output from define_loci.")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory to save the output files.")
     parser.add_argument("--qc_output_dir", type=str, required=True, help="Directory to save the QC output files.")
     parser.add_argument("--header_lines", type=int, default=0, help="Number of header lines to skip in the input file.")
     parser.add_argument("--entrez_email", type=str, required=True, help="Email address for NCBI Entrez API.")
     parser.add_argument("--annotate_dbSNP", action="store_true", default=False, help="Whether to annotate SNPs with dbSNP information. Default is False.")
+    parser.add_argument("--filter_by_loci", action="store_true", default=False, help="Whether to filter summary statistics by loci. Default is False.")
     parser.add_argument("--ss_chr_key", type=str, required=True, help="Column name for chromosome.")
     parser.add_argument("--ss_pos_key", type=str, required=True, help="Column name for genomic position.")
     parser.add_argument("--ss_rsid_key", type=str, default=None, help="Column name for rsID (optional).")
     parser.add_argument("--ss_gene_id_key", type=str, default=None, help="Column name for gene ID.")
+    parser.add_argument("--ss_gene_symbol_key", type=str, default=None, help="Column name for gene symbol (optional).")
     parser.add_argument("--ss_non_effect_allele_key", type=str, default=None, help="Column name for non-effect allele (optional).")
     parser.add_argument("--ss_effect_allele_key", type=str, default=None, help="Column name for effect allele (optional).")
     parser.add_argument("--ss_p_key", type=str, default=None, help="Column name for p-value (optional).")
@@ -846,23 +901,25 @@ if __name__ == "__main__":
     parser.add_argument("--ss_var_beta_key", type=str, default=None, help="Column name for variance of beta (optional).")
     parser.add_argument("--ss_strata_key", type=str, default=None, help="Column name for strata label (optional). Ex. tissue, region, sex, etc.")
     parser.add_argument("--ss_strata_value", type=str, default=None, help="Value to fill strata column in standardized output (optional). Ex. 'Cortex' if strata is region.")
-    parser.add_argument("--standardized_chr_key", type=str, default="CHR", help="Standardized column name for chromosome.")
-    parser.add_argument("--standardized_pos_key", type=str, default="BP", help="Standardized column name for position.")
-    parser.add_argument("--standardized_rsid_key", type=str, default="SNP", help="Standardized column name for rsID.")
-    parser.add_argument("--standardized_variant_id_key", type=str, default="VAR", help="Standardized column name for variant ID.")
-    parser.add_argument("--standardized_gene_id_key", type=str, default="GENE", help="Standardized column name for gene ID.")
-    parser.add_argument("--standardized_non_effect_allele_key", type=str, default="NON_EFFECT", help="Standardized column name for non-effect allele.")
-    parser.add_argument("--standardized_effect_allele_key", type=str, default="EFFECT", help="Standardized column name for effect allele.")
-    parser.add_argument("--standardized_p_key", type=str, default="P", help="Standardized column name for p-value.")
-    parser.add_argument("--standardized_beta_key", type=str, default="BETA", help="Standardized column name for beta coefficient.")
-    parser.add_argument("--standardized_se_key", type=str, default="SE", help="Standardized column name for standard error.")
-    parser.add_argument("--standardized_n_key", type=str, default="N", help="Standardized column name for sample size.")
-    parser.add_argument("--standardized_statistic_key", type=str, default="STAT", help="Standardized column name for test statistic.")
-    parser.add_argument("--standardized_maf_key", type=str, default="MAF", help="Standardized column name for minor allele frequency.")
-    parser.add_argument("--standardized_var_beta_key", type=str, default="VARBETA", help="Standardized column name for variance of beta.")
-    parser.add_argument("--standardized_strata_key", type=str, default="STRATA", help="Standardized column name for strata label.")
-    parser.add_argument("--loci_left_bound_key", type=str, default="LEFT_500KB", help="Column name for left bound of loci.")
-    parser.add_argument("--loci_right_bound_key", type=str, default="RIGHT_500KB", help="Column name for right bound of loci.")
+    parser.add_argument("--ss_phenotype_id_key", type=str, default=None, help="Column name for phenytope id (optional). Relevant for sQTLs")
+    parser.add_argument("--standardized_chr_key", type=str, default="CHR", help="Standardized column name for chromosome (optional).")
+    parser.add_argument("--standardized_pos_key", type=str, default="BP", help="Standardized column name for position (optional).")
+    parser.add_argument("--standardized_rsid_key", type=str, default="SNP", help="Standardized column name for rsID (optional).")
+    parser.add_argument("--standardized_variant_id_key", type=str, default="VAR", help="Standardized column name for variant ID (optional).")
+    parser.add_argument("--standardized_gene_id_key", type=str, default="GENE", help="Standardized column name for gene ID (optional).")
+    parser.add_argument("--standardized_phenotype_id_key", type=str, default="PHENOTYPE", help="Standardized column name for phenotype ID (optional).")
+    parser.add_argument("--standardized_non_effect_allele_key", type=str, default="NON_EFFECT", help="Standardized column name for non-effect allele (optional).")
+    parser.add_argument("--standardized_effect_allele_key", type=str, default="EFFECT", help="Standardized column name for effect allele (optional).")
+    parser.add_argument("--standardized_p_key", type=str, default="P", help="Standardized column name for p-value (optional).")
+    parser.add_argument("--standardized_beta_key", type=str, default="BETA", help="Standardized column name for beta coefficient (optional).")
+    parser.add_argument("--standardized_se_key", type=str, default="SE", help="Standardized column name for standard error (optional).")
+    parser.add_argument("--standardized_n_key", type=str, default="N", help="Standardized column name for sample size (optional).")
+    parser.add_argument("--standardized_statistic_key", type=str, default="STAT", help="Standardized column name for test statistic (optional).")
+    parser.add_argument("--standardized_maf_key", type=str, default="MAF", help="Standardized column name for minor allele frequency (optional).")
+    parser.add_argument("--standardized_var_beta_key", type=str, default="VARBETA", help="Standardized column name for variance of beta (optional).")
+    parser.add_argument("--standardized_strata_key", type=str, default="STRATA", help="Standardized column name for strata label (optional).")
+    parser.add_argument("--loci_left_bound_key", type=str, default="LEFT_500KB", help="Column name for left bound of loci (optional).")
+    parser.add_argument("--loci_right_bound_key", type=str, default="RIGHT_500KB", help="Column name for right bound of loci (optional).")
 
     args = parser.parse_args()
     main(args)

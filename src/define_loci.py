@@ -26,6 +26,9 @@ def _standardize_df(df: pd.DataFrame, standard_keys: list[str], standard_key_nam
     # Rename columns to standard names
     standard_df.columns = standard_key_names
 
+    # Add locus number column based on the index
+    standard_df.insert(0, "LOCUS", range(1, len(standard_df) + 1))
+
     return standard_df
 
 # -------------------------- Class Definition -------------------------
@@ -91,9 +94,9 @@ class LocusRanges:
             None: The DataFrame is modified in place to include the extracted chromosome and position.
 
         """
-        # Define left and right boundaries based on position and flank size
-        self.df[self.left_bound_key], self.df[self.right_bound_key] = zip(*[(pos - self.flank_size, pos + self.flank_size) if pd.notnull(pos) else (None, None) for pos in self.df[self.pos_key]])
-
+        # Define left and right boundaries based on the position and flank size
+        self.df[self.left_bound_key] = (self.df[self.pos_key] - self.flank_size).clip(lower=1)
+        self.df[self.right_bound_key] = self.df[self.pos_key] + self.flank_size
 
     def merge_overlapping(self) -> None:
         """
@@ -160,28 +163,30 @@ class LocusRanges:
         return df
 
 
-    def define_locus_ranges(self) -> tuple[pd.DataFrame, pd.DataFrame]:
+    def define_locus_ranges(self) -> pd.DataFrame:
         """
         Main function to parse SNP IDs, define ranges, and merge overlapping ranges.
 
         Returns:
-            tuple[pd.DataFrame, pd.DataFrame]: Tuple containing the merged DataFrame with loci information and the original DataFrame with added columns for chromosome, position, and boundaries.
+            pd.DataFrame: The merged DataFrame with loci information.
 
         """
 
         # Filter the DataFrame based on the p-value threshold
         self.filter_by_p_value()
         print(f"Significant SNPs after filtering by p-value < {self.p_threshold}: {len(self.df)}")
+        if self.df.empty:
+            raise ValueError("No variants pass the p-value threshold.")
 
         # Parse SNP IDs to extract chromosome and position, if they are not already present in the DataFrame. Raise an error if neither SNP ID column nor both chromosome and position columns are present.
-        if self.chr_key not in self.df.columns and self.pos_key not in self.df.columns:
+        if self.chr_key not in self.df.columns or self.pos_key not in self.df.columns:
             if self.snp_id_key is not None:
                 self.parse_snp_id()
             else:
                 raise ValueError("ERROR: Unable to define loci. Either SNP ID column must be provided or both chromosome and position columns must be present in the input file.")
 
         # Normalize chromosome representation
-        self.df[self.chr_key] = self.df[self.chr_key].astype(str).map(normalize_chromosome)
+        self.df[self.chr_key] = self.df[self.chr_key].astype(str).map(normalize_chromosome).astype(int)
 
         # Define the range around each SNP based on the flank size
         self.define_range()
@@ -190,15 +195,13 @@ class LocusRanges:
         self.merge_overlapping()
 
         # Add locus IDs
-        self.df = self.add_locus_id(self.df)
         self.merged_df = self.add_locus_id(self.merged_df)
 
         # Standardize the DataFrames to include only relevant columns
-        full_df = _standardize_df(self.df, self.standard_keys, self.standard_key_names)
         merged_df = _standardize_df(self.merged_df, self.standard_keys + [self.n_snps_key], self.standard_key_names + [self.n_snps_key])
 
-        return full_df, merged_df
-    
+        return merged_df
+
 
 # -------------------------- Main Function -------------------------
 
@@ -217,18 +220,15 @@ def main(args: argparse.Namespace) -> None:
     locus_definer = LocusRanges(args)
 
     # Define loci
-    full_df, merged_df = locus_definer.define_locus_ranges()
+    merged_df = locus_definer.define_locus_ranges()
 
     # Print number of loci defined
-    print(f"Number of loci defined: {len(full_df)}")
     print(f"Number of merged loci: {len(merged_df)}")
 
     # Save the results to CSV files
-    full_df.to_csv(f'{args.output_file_prefix}.tsv', sep='\t', index=False)
-    if len(merged_df) < len(full_df):
-        output_fp = f'{args.output_file_prefix}.merged.tsv'
-        print(f"Saving merged loci to {output_fp}")
-        merged_df.to_csv(output_fp, sep='\t', index=False)
+    output_fp = f'{args.output_file_prefix}.merged.tsv'
+    print(f"Saving merged loci to {output_fp}")
+    merged_df.to_csv(output_fp, sep='\t', index=False)
 
 
 # -------------------------- Command-Line Interface -------------------------
@@ -241,7 +241,7 @@ if __name__ == "__main__":
     parser.add_argument("--chr_key", type=str, required=True, help="Column name for chromosome information. If not provided, it will be extracted from SNP_ID.")
     parser.add_argument("--pos_key", type=str, required=True, help="Column name for position information. If not provided, it will be extracted from SNP_ID.")
     parser.add_argument("--p_key", type=str, default="P", help="Column name for p-values in the input DataFrame.")
-    parser.add_argument("--p_threshold", type=float, default=5e-6, help="P-value threshold for defining significant loci.")
+    parser.add_argument("--p_threshold", type=float, default=5e-8, help="P-value threshold for defining significant loci.")
     parser.add_argument("--flank_size", type=int, default=500000, help="Flank size in base pairs to define the range around each SNP.")
     parser.add_argument("--standardized_chr_key", default="CHR", help="Column name for standardized chromosome information in the output DataFrame.")
     parser.add_argument("--locus_id_key", type=str, default="LOCUS_ID", help="Column name for locus IDs in the output DataFrame.")

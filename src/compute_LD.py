@@ -68,6 +68,7 @@ def compute_ld_for_locus(
         standardized_right_bound_key: str,
         maf_min: float,
         geno_max: float,
+        hwe_min: float,
         ancestry_keep_file: str
     ) -> int:
     """
@@ -105,6 +106,7 @@ def compute_ld_for_locus(
         "--to-bp", row[standardized_right_bound_key],
         "--maf", str(maf_min),
         "--geno", str(geno_max),
+        "--hwe", str(hwe_min),
         "--keep-allele-order",
         "--make-bed",
         "--out", region
@@ -183,7 +185,18 @@ def main(args: argparse.Namespace):
         print(f"\n[{row[args.standardized_locus_id_key]}]")
 
         # Compute LD for the locus and get the number of variants
-        n = compute_ld_for_locus(args.ref_bfile, args.ld_output_dir, tag, row, args.standardized_chr_key, args.standardized_left_bound_key, args.standardized_right_bound_key, args.maf_min, args.geno_max, args.ancestry_keep_file)
+        n = compute_ld_for_locus(
+            bfile=args.ref_bfile,
+            ld_output_dir=args.ld_output_dir,
+            tag=tag,
+            row=row,
+            standardized_chr_key=args.standardized_chr_key,
+            standardized_left_bound_key=args.standardized_left_bound_key,
+            standardized_right_bound_key=args.standardized_right_bound_key,
+            maf_min=args.maf_min,
+            geno_max=args.geno_max,
+            hwe_min=args.hwe_min,
+            ancestry_keep_file=args.ancestry_keep_file)
 
         # Append the locus information and LD file paths to the manifest
         manifest.append({
@@ -233,7 +246,8 @@ if __name__ == "__main__":
     parser.add_argument("--standardized_left_bound_key", default="LEFT_500KB", help="Column name for left boundary in the loci file.")
     parser.add_argument("--standardized_right_bound_key", default="RIGHT_500KB", help="Column name for right boundary in the loci file.")
     parser.add_argument("--maf_min", type=float, default=0.01, help="Minimum minor allele frequency for filtering.")
-    parser.add_argument("--geno_max", type=float, default=0.05, help="Maximum missing genotype rate for filtering.")
+    parser.add_argument("--geno_max", type=float, default=0.02, help="Maximum missing genotype rate for filtering.")
+    parser.add_argument("--hwe_min", type=float, default=1e-6, help="Minimum Hardy-Weinberg equilibrium p-value for filtering.")
     parser.add_argument("--ld_file_key", default="LD", help="Column name for LD file paths in the manifest (default: ld_file).")
     parser.add_argument("--bim_file_key", default="BIM", help="Column name for BIM file paths in the manifest (default: bim_file).")
 

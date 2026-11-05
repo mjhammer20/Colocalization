@@ -7,7 +7,9 @@
     "purrr",
     "R6",
     "argparse",
-    "tools"
+    "tools", 
+    "ggplot2",
+    "R.utils"
 )
 
 .required_bioc <- c(
