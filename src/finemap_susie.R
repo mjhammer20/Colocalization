@@ -365,6 +365,7 @@ Finemapper <- R6Class("Finemapper",
             self$result_details_dt <- data.table(
                         locus = character(),
                         n_variants = integer(),
+                        n_rare_variants = integer(),
                         lead_variant = character(),
                         lead_variant_pval = numeric(),
                         n_variants_ld = integer(),
@@ -823,15 +824,9 @@ Finemapper <- R6Class("Finemapper",
             n_variants = nrow(locus_ss)
             .log("  [%s] Variants in locus: %d", locus_label, n_variants)
 
-            # Filter out rare variants with EAF < 0.01 or EAF > 0.99, and log the number of SNPs removed
-            locus_ss <- locus_ss %>% filter(
-                .data[[locus_ss$standardized_eaf_key]] >= 0.01,
-                .data[[locus_ss$standardized_eaf_key]] <= 0.99
-            )
-
-            # Count the number of rare variants removed and log the information
-            n_variants_removed = n_variants - nrow(locus_ss)
-            .log("  [%s] Rare variants removed (EAF < 0.01 or EAF > 0.99): %d", locus_label, n_variants_removed)
+            # Count the number of rare variants (EAF < 0.01 or EAF > 0.99) and log the information
+            n_rare_variants = locus_ss %>% filter(.data[[self$standardized_eaf_key]] < 0.01 | .data[[self$standardized_eaf_key]] > 0.99) %>% nrow()
+            .log("  [%s] Rare variants in locus (EAF < 0.01 or EAF > 0.99): %d", locus_label, n_rare_variants)
 
             # Record the lead variant
             top_variant <- locus_ss %>% arrange(.data[[self$standardized_p_key]]) %>% slice(1)
@@ -965,6 +960,7 @@ Finemapper <- R6Class("Finemapper",
                 data.table(
                     locus = locus_label,
                     n_variants = n_variants,
+                    n_rare_variants = n_rare_variants,
                     lead_variant = lead_variant,
                     lead_variant_pval = lead_variant_pval,
                     n_variants_ld = n_variants_ld,
