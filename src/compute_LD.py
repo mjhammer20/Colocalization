@@ -184,9 +184,15 @@ def main(args: argparse.Namespace):
         tag = _safe_tag(str(row[args.standardized_locus_id_key]))
         print(f"\n[{row[args.standardized_locus_id_key]}]")
 
+        # Define the reference binary fileset path, adjusting for chromosome-separated files if specified
+        if args.chr_separated:
+            bfile = str(Path(args.ref_dir) / f"chr{row[args.standardized_chr_key]}.{args.ref_bfile}")
+        else:
+            bfile = str(Path(args.ref_dir) / args.ref_bfile)
+
         # Compute LD for the locus and get the number of variants
         n = compute_ld_for_locus(
-            bfile=args.ref_bfile,
+            bfile=bfile,
             ld_output_dir=args.ld_output_dir,
             tag=tag,
             row=row,
@@ -237,7 +243,9 @@ if __name__ == "__main__":
     parser.add_argument("--loci_file", required=True, help="Path to the input loci file (TSV).")
     parser.add_argument("--header_lines", type=int, default=0, help="Number of header lines to skip in the loci file.")
     parser.add_argument("--standardized_locus_id_key", default="LOCUS_ID", help="Column name for locus IDs in the loci file.")
-    parser.add_argument("--ref_bfile", required=True, help="Path to the reference PLINK binary fileset (prefix).")
+    parser.add_argument("--ref_dir", required=True, help="Path to the reference directory containing PLINK binary filesets.")
+    parser.add_argument("--ref_bfile", required=True, help="Binary fileset prefix (without .bed/.bim/.fam) for the reference panel.")
+    parser.add_argument("--chr_separated", action="store_true", default=False, help="Indicates if the reference files are separated by chromosome (e.g., chr1.bed, chr2.bed, etc.).")
     parser.add_argument("--ancestry_keep_file", default="NA", help="Path to the ancestry keep file.")
     parser.add_argument("--ld_panel", required=True, help="Name of the LD reference panel (e.g., 1000G_EUR).")
     parser.add_argument("--ld_output_dir", required=True, help="Directory to write output LD matrices and manifest.")

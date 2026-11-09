@@ -186,16 +186,16 @@ def _extract_alleles_from_record(record: dict) -> tuple:
 
 def _extract_maf_from_record(record: dict) -> float:
     """
-    Extract the minor allele frequency (MAF) from an NCBI dbSNP record.
+    Extract the minor allele frequency (eaf) from an NCBI dbSNP record.
 
     Args:
         record (dict): The NCBI dbSNP record.
 
     Returns:
-        float: The MAF value, or NaN if not found.
+        float: The eaf value, or NaN if not found.
 
     """
-    # Extract the GLOBAL_MAFS field from the record, which contains MAF information
+    # Extract the GLOBAL_MAFS field from the record, which contains eaf information
     global_mafs = record.get("GLOBAL_MAFS", None)
 
     # Check if GLOBAL_MAFS is present; if not, log an error and return NaN
@@ -204,7 +204,7 @@ def _extract_maf_from_record(record: dict) -> float:
         return np.nan
 
     # Extract the MAFs list from the GLOBAL_MAFS field
-    mafs_list = global_mafs.get("MAF", None)
+    mafs_list = global_mafs.get("eaf", None)
 
     # Check if MAFs list is present; if not, log an error and return NaN
     if not mafs_list:
@@ -215,21 +215,21 @@ def _extract_maf_from_record(record: dict) -> float:
     try:
         mafs_dict = {x["STUDY"]: x["FREQ"] for x in mafs_list}
 
-    # Handle cases where the MAFs list is not in the expected format by attempting to extract a single MAF entry
+    # Handle cases where the MAFs list is not in the expected format by attempting to extract a single eaf entry
     except TypeError:
         try:
             mafs_dict = {mafs_list["STUDY"]: mafs_list["FREQ"]}
         
-        # Handle any other unexpected exceptions that may occur during the MAF extraction process by logging the error and returning NaN
+        # Handle any other unexpected exceptions that may occur during the eaf extraction process by logging the error and returning NaN
         except Exception as e:
             print(f"Error: MAFs field not in expected format for rsID rs{record.get('@uid', 'Unknown')}: {e}")
             return np.nan
         
-    # Select the MAF from GnomAD_genomes if available, otherwise from 1000Genomes, or fallback to the first available MAF
-    maf = mafs_dict.get("GnomAD_genomes") or mafs_dict.get("1000Genomes") or list(mafs_dict.values())[0]
+    # Select the eaf from GnomAD_genomes if available, otherwise from 1000Genomes, or fallback to the first available eaf
+    eaf = mafs_dict.get("GnomAD_genomes") or mafs_dict.get("1000Genomes") or list(mafs_dict.values())[0]
 
-    # Split the MAF string to extract the frequency value and convert it to a float
-    maf_parsed = maf.split("=")
+    # Split the eaf string to extract the frequency value and convert it to a float
+    maf_parsed = eaf.split("=")
     freqs = maf_parsed[1].split("/")
 
     return float(freqs[0])
@@ -291,15 +291,21 @@ class SumStatsTransformer:
         self.loci_right_bound_key = args.loci_right_bound_key
         self.snps_df = pd.DataFrame()
         self.annotate_dbSNP = args.annotate_dbSNP
-        self.filter_by_loci = args.filter_by_loci
+        self.filter_loci = args.filter_loci
+        self.filter_p_value = args.filter_p_value
         self.ss_chr_key = args.ss_chr_key
         self.ss_pos_key = args.ss_pos_key
         self.ss_rsid_key = args.ss_rsid_key
         self.ss_non_effect_allele_key = args.ss_non_effect_allele_key
         self.ss_effect_allele_key = args.ss_effect_allele_key
+        self.ss_n_cases_key = args.ss_n_cases_key
+        self.ss_n_controls_key = args.ss_n_controls_key
+        self.ss_n_key = args.ss_n_key
+        self.ss_n_cases = args.ss_n_cases
+        self.ss_n_controls = args.ss_n_controls
         self.ss_n = args.ss_n
-        self.ss_maf_key = args.ss_maf_key
-        self.ss_mac_key = args.ss_mac_key
+        self.ss_eaf_key = args.ss_eaf_key
+        self.ss_eac_key = args.ss_eac_key
         self.ss_p_key = args.ss_p_key
         self.ss_statistic_key = args.ss_statistic_key
         self.ss_se_key = args.ss_se_key
@@ -318,16 +324,16 @@ class SumStatsTransformer:
         self.dbSNP_effect_allele_key = "A2_dbsnp"
         self.dbSNP_maf_key = "MAF_dbsnp"
         self.dbSNP_validation_key = "dbSNP_Validation"
-        self.standardized_non_effect_allele_key = args.standardized_non_effect_allele_key
-        self.standardized_effect_allele_key = args.standardized_effect_allele_key
-        self.standardized_maf_key = args.standardized_maf_key
         self.standardized_pos_key = args.standardized_pos_key
         self.standardized_variant_id_key = args.standardized_variant_id_key
         self.standardized_rsid_key = args.standardized_rsid_key
-        self.standardized_gene_id_key = args.standardized_gene_id_key
+        self.standardized_gene_key = args.standardized_gene_key
         self.standardized_phenotype_id_key = args.standardized_phenotype_id_key
         self.standardized_non_effect_allele_key = args.standardized_non_effect_allele_key
         self.standardized_effect_allele_key = args.standardized_effect_allele_key
+        self.standardized_eaf_key = args.standardized_eaf_key
+        self.standardized_n_cases_key = args.standardized_n_cases_key
+        self.standardized_n_controls_key = args.standardized_n_controls_key
         self.standardized_n_key = args.standardized_n_key
         self.standardized_p_key = args.standardized_p_key
         self.standardized_se_key = args.standardized_se_key
@@ -352,7 +358,7 @@ class SumStatsTransformer:
         self.ss_df[self.ss_pos_key] = _coalesce(liftover_df, "POS_LIFT", self.ss_pos_key)
 
 
-    def filter_by_expanded_ranges(self):
+    def filter_by_loci(self):
         """
         Filter summary statistics to include only rows that fall within specified expanded locus ranges.
 
@@ -398,10 +404,10 @@ class SumStatsTransformer:
 
     def add_dbSNP_info(self):
         """
-        Query NCBI dbSNP in batches to retrieve allele information and MAF for each rsID in the index.
+        Query NCBI dbSNP in batches to retrieve allele information and eaf for each rsID in the index.
 
         Returns:
-            None: The DataFrame is modified in place to include dbSNP allele and MAF information.
+            None: The DataFrame is modified in place to include dbSNP allele and eaf information.
 
         """
         # Get the list of rsIDs from the index of the summary statistics DataFrame
@@ -410,12 +416,12 @@ class SumStatsTransformer:
         # Define the batch size for querying dbSNP
         batch_size = 200
 
-        # Initialize buffers to store allele and MAF information for each batch
+        # Initialize buffers to store allele and eaf information for each batch
         alleles_buf = []
         mafs_buf = []
         pos_buf = []
 
-        # Loop through the rsIDs in batches and fetch allele and MAF information from dbSNP
+        # Loop through the rsIDs in batches and fetch allele and eaf information from dbSNP
         print(f"Fetching dbSNP information for {len(rsids_full)} rsIDs in batches of {batch_size}...")
         for start in range(0, len(rsids_full), batch_size):
 
@@ -444,7 +450,7 @@ class SumStatsTransformer:
             )
             alleles_buf.append(batch_alleles)
 
-            # Extract MAF information from the fetched records, store it in a pandas Series, and append it to the MAFs buffer
+            # Extract eaf information from the fetched records, store it in a pandas Series, and append it to the MAFs buffer
             batch_mafs = pd.Series(
                 [_extract_maf_from_record(record) for record in batch_records],
                 index=indices
@@ -455,7 +461,7 @@ class SumStatsTransformer:
             del batch_records, batch_positions, batch_alleles, batch_mafs
             gc.collect()
 
-        # Concatenate the allele and MAF buffers into single Series for alleles and MAFs
+        # Concatenate the allele and eaf buffers into single Series for alleles and MAFs
         positions = pd.concat(pos_buf)
         alleles = pd.concat(alleles_buf)
         mafs = pd.concat([s for s in mafs_buf if not s.empty])
@@ -535,12 +541,37 @@ class SumStatsTransformer:
 
         """
         # Extract numeric series for relevant summary statistics columns
-        s_maf = numeric_series(self.annotated_df, self.ss_maf_key)
+        s_eaf = numeric_series(self.annotated_df, self.ss_eaf_key)
+        s_eac = numeric_series(self.annotated_df, self.ss_eac_key)
         s_p = numeric_series(self.annotated_df, self.ss_p_key)
         s_statistic = numeric_series(self.annotated_df, self.ss_statistic_key)
         s_se = numeric_series(self.annotated_df, self.ss_se_key)
         s_beta = numeric_series(self.annotated_df, self.ss_beta_key)
         s_var_beta = numeric_series(self.annotated_df, self.ss_var_beta_key)
+        s_n_cases = numeric_series(self.annotated_df, self.ss_n_cases_key)
+        s_n_controls = numeric_series(self.annotated_df, self.ss_n_controls_key)
+        s_n = numeric_series(self.annotated_df, self.ss_n_key)
+
+        # Calculate N from N_cases and N_controls if both are available, or from N if available
+        if self.ss_n_key is None:
+            s_n = pd.Series(np.nan, index=self.annotated_df.index)
+            if self.ss_n_cases_key is not None and self.ss_n_controls_key is not None:
+                m = s_n_cases.notna() & s_n_controls.notna()
+                s_n.loc[m] = (s_n_cases + s_n_controls)[m]
+            elif self.ss_n_cases is not None and self.ss_n_controls is not None:
+                self.annotated_df[self.standardized_n_cases_key] = self.ss_n_cases
+                self.annotated_df[self.standardized_n_controls_key] = self.ss_n_controls
+                s_n = pd.Series(self.ss_n_cases + self.ss_n_controls, index=self.annotated_df.index).astype(int)
+            elif self.ss_n is not None:
+                s_n = pd.Series(self.ss_n, index=self.annotated_df.index)
+            self.annotated_df[self.standardized_n_key] = s_n
+
+        # Calculate EAF from EAC and N if both are available and N is greater than zero
+        if self.ss_eaf_key is None:
+            s_eaf = pd.Series(np.nan, index=s_eac.index)
+            m = s_eac.notna() & (s_n > 0)
+            s_eaf.loc[m] = (s_eac[m] / s_n[m]).clip(0, 1)
+            self.annotated_df[self.standardized_eaf_key] = s_eaf
 
         # Calculate statistic from P-value if P-value is available and within (0, 1)
         if self.ss_statistic_key is None:
@@ -549,13 +580,13 @@ class SumStatsTransformer:
             s_statistic.loc[m] = (norm.ppf(1 - s_p / 2))[m]
             self.annotated_df[self.standardized_statistic_key] = s_statistic
 
-        # Calculate standardized error (SE) from beta and statistic if both are available and statistic is not zero, or from MAF and N if both are available and N is greater than zero
+        # Calculate standardized error (SE) from beta and statistic if both are available and statistic is not zero, or from eaf and N if both are available and N is greater than zero
         if not self.ss_se_key:
             s_se = pd.Series(np.nan, index=self.annotated_df.index)
             m = s_beta.notna() & s_statistic.notna() & (s_statistic != 0)
             s_se.loc[m] = (s_beta.abs() / s_statistic.abs())[m]
-            m = s_se.isna() & s_maf.notna() & (self.ss_n > 0) & s_statistic.notna() & (s_statistic != 0)
-            s_se.loc[m] = 1 / np.sqrt(2 * s_maf * (1 - s_maf) * (self.ss_n + s_statistic**2))[m]
+            m = s_se.isna() & s_eaf.notna() & (s_n > 0) & s_statistic.notna() & (s_statistic != 0)
+            s_se.loc[m] = 1 / np.sqrt(2 * s_eaf * (1 - s_eaf) * (s_n + s_statistic**2))[m]
             self.annotated_df[self.standardized_se_key] = s_se
 
         # Calculate beta from statistic and SE if both are available
@@ -617,9 +648,9 @@ class SumStatsTransformer:
                 else [self.standardized_chr_key, self.ss_pos_key, self.ss_rsid_key]
             self.annotated_df = pd.merge(self.ss_df, self.snps_df, on=merge_keys, how="left")
 
-            # Use dbSNP MAF if maf_key was not provided
-            if self.ss_maf_key is None and self.dbSNP_maf_key in self.annotated_df.columns:
-                self.ss_maf_key = self.dbSNP_maf_key
+            # Use dbSNP eaf if maf_key was not provided
+            if self.ss_eaf_key is None and self.dbSNP_maf_key in self.annotated_df.columns:
+                self.ss_eaf_key = self.dbSNP_maf_key
 
             # Check allele match if effect/non-effect allele columns are available
             self.validate_dbSNP()
@@ -630,7 +661,7 @@ class SumStatsTransformer:
 
             # If dbSNP annotation is skipped, copy the original DataFrame and add a column indicating that dbSNP annotation/validation was skipped
             self.annotated_df = self.ss_df.copy()
-            self.annotated_df[self.dbSNP_validation_key] = "dbSNP annotation/validation skipped"
+            self.annotated_df[self.dbSNP_validation_key] = "NA"
 
         # Resolve each component with per-row fallback via _coalesce:
         # prefer dbSNP values where available, fall back to summary statistics values
@@ -657,14 +688,17 @@ class SumStatsTransformer:
         """
         # Ensure strata column exists
         if not self.ss_strata_key:
-            if not self.ss_strata_value:
-                self.annotated_df[self.standardized_strata_key] = "NA"
-            else:
+            if self.ss_strata_value:
                 self.annotated_df[self.standardized_strata_key] = self.ss_strata_value
+            else:
+                self.annotated_df[self.standardized_strata_key] = "NA"
 
         # Check if gene symbol column exists, if not, use gene ID column
         if not self.ss_gene_symbol_key:
-            self.annotated_df[self.standardized_gene_id_key] = self.annotated_df[self.ss_gene_id_key]
+            if self.ss_gene_id_key and self.ss_gene_id_key in self.annotated_df.columns:
+                self.annotated_df[self.standardized_gene_key] = self.annotated_df[self.ss_gene_id_key]
+            else:
+                self.annotated_df[self.standardized_gene_key] = "NA"
 
         # If no phenotype ID column is provided, build standardized sum stats without it
         if not self.ss_phenotype_id_key:
@@ -675,14 +709,17 @@ class SumStatsTransformer:
                 self.standardized_pos_key: _coalesce(self.annotated_df, self.dbSNP_pos_key, self.ss_pos_key),
                 self.standardized_variant_id_key: _coalesce(self.annotated_df, self.standardized_variant_id_key, None),
                 self.standardized_rsid_key: _coalesce(self.annotated_df, self.ss_rsid_key, self.dbSNP_rsid_key),
-                self.standardized_gene_id_key: _coalesce(self.annotated_df, self.ss_gene_symbol_key, self.standardized_gene_id_key),
+                self.standardized_gene_key: _coalesce(self.annotated_df, self.ss_gene_symbol_key, self.standardized_gene_key),
                 self.standardized_non_effect_allele_key: _coalesce(self.annotated_df, self.dbSNP_non_effect_allele_key, self.ss_non_effect_allele_key),
                 self.standardized_effect_allele_key: _coalesce(self.annotated_df, self.dbSNP_effect_allele_key, self.ss_effect_allele_key),
+                self.standardized_eaf_key: _coalesce(self.annotated_df, self.ss_eaf_key, self.dbSNP_maf_key),
                 self.standardized_p_key: _coalesce(self.annotated_df, self.ss_p_key, self.standardized_p_key),
                 self.standardized_beta_key: _coalesce(self.annotated_df, self.ss_beta_key, self.standardized_beta_key),
                 self.standardized_var_beta_key: _coalesce(self.annotated_df, self.ss_var_beta_key, self.standardized_var_beta_key),
                 self.standardized_se_key: _coalesce(self.annotated_df, self.ss_se_key, self.standardized_se_key),
-                self.standardized_maf_key: _coalesce(self.annotated_df, self.ss_maf_key, self.dbSNP_maf_key),
+                self.standardized_n_cases_key: _coalesce(self.annotated_df, self.ss_n_cases_key, self.standardized_n_cases_key),
+                self.standardized_n_controls_key: _coalesce(self.annotated_df, self.ss_n_controls_key, self.standardized_n_controls_key),
+                self.standardized_n_key: _coalesce(self.annotated_df, self.ss_n_key, self.standardized_n_key),
                 self.standardized_strata_key: _coalesce(self.annotated_df, self.ss_strata_key, self.standardized_strata_key),
                 self.dbSNP_validation_key: _coalesce(self.annotated_df, self.dbSNP_validation_key, None),
             })
@@ -693,14 +730,17 @@ class SumStatsTransformer:
                 self.standardized_pos_key,
                 self.standardized_variant_id_key,
                 self.standardized_rsid_key,
-                self.standardized_gene_id_key,
+                self.standardized_gene_key,
                 self.standardized_non_effect_allele_key,
                 self.standardized_effect_allele_key,
+                self.standardized_eaf_key,
                 self.standardized_p_key,
                 self.standardized_beta_key,
                 self.standardized_var_beta_key,
                 self.standardized_se_key,
-                self.standardized_maf_key,
+                self.standardized_n_cases_key,
+                self.standardized_n_controls_key,
+                self.standardized_n_key,
                 self.standardized_strata_key,
                 self.dbSNP_validation_key
             ]
@@ -713,15 +753,18 @@ class SumStatsTransformer:
                 self.standardized_pos_key: _coalesce(self.annotated_df, self.dbSNP_pos_key, self.ss_pos_key),
                 self.standardized_variant_id_key: _coalesce(self.annotated_df, self.standardized_variant_id_key, None),
                 self.standardized_rsid_key: _coalesce(self.annotated_df, self.ss_rsid_key, self.dbSNP_rsid_key),
-                self.standardized_gene_id_key: _coalesce(self.annotated_df, self.ss_gene_symbol_key, self.standardized_gene_id_key),
+                self.standardized_gene_key: _coalesce(self.annotated_df, self.ss_gene_symbol_key, self.standardized_gene_key),
                 self.standardized_phenotype_id_key: _coalesce(self.annotated_df, self.ss_phenotype_id_key, None),
                 self.standardized_non_effect_allele_key: _coalesce(self.annotated_df, self.dbSNP_non_effect_allele_key, self.ss_non_effect_allele_key),
                 self.standardized_effect_allele_key: _coalesce(self.annotated_df, self.dbSNP_effect_allele_key, self.ss_effect_allele_key),
+                self.standardized_eaf_key: _coalesce(self.annotated_df, self.ss_eaf_key, self.dbSNP_maf_key),
                 self.standardized_p_key: _coalesce(self.annotated_df, self.ss_p_key, self.standardized_p_key),
                 self.standardized_beta_key: _coalesce(self.annotated_df, self.ss_beta_key, self.standardized_beta_key),
                 self.standardized_var_beta_key: _coalesce(self.annotated_df, self.ss_var_beta_key, self.standardized_var_beta_key),
                 self.standardized_se_key: _coalesce(self.annotated_df, self.ss_se_key, self.standardized_se_key),
-                self.standardized_maf_key: _coalesce(self.annotated_df, self.ss_maf_key, self.dbSNP_maf_key),
+                self.standardized_n_cases_key: _coalesce(self.annotated_df, self.ss_n_cases_key, self.standardized_n_cases_key),
+                self.standardized_n_controls_key: _coalesce(self.annotated_df, self.ss_n_controls_key, self.standardized_n_controls_key),
+                self.standardized_n_key: _coalesce(self.annotated_df, self.ss_n_key, self.standardized_n_key),
                 self.standardized_strata_key: _coalesce(self.annotated_df, self.ss_strata_key, self.standardized_strata_key),
                 self.dbSNP_validation_key: _coalesce(self.annotated_df, self.dbSNP_validation_key, None),
             })
@@ -732,19 +775,32 @@ class SumStatsTransformer:
                 self.standardized_pos_key,
                 self.standardized_variant_id_key,
                 self.standardized_rsid_key,
-                self.standardized_gene_id_key,
+                self.standardized_gene_key,
                 self.standardized_phenotype_id_key,
                 self.standardized_non_effect_allele_key,
                 self.standardized_effect_allele_key,
+                self.standardized_eaf_key,
                 self.standardized_p_key,
                 self.standardized_beta_key,
                 self.standardized_var_beta_key,
                 self.standardized_se_key,
-                self.standardized_maf_key,
+                self.standardized_n_cases_key,
+                self.standardized_n_controls_key,
+                self.standardized_n_key,
                 self.standardized_strata_key,
                 self.dbSNP_validation_key
             ]
-        
+
+        # Drop columns that are entirely missing (NaN, empty, or "NA"), keeping the variant ID column
+        # needed downstream for filtering
+        missing = self.transformed_df.isna() | self.transformed_df.astype(str).isin(["NA", "", "nan", "None"])
+        all_missing_cols = [
+            c for c in self.transformed_df.columns
+            if missing[c].all() and c != self.standardized_variant_id_key
+        ]
+        if all_missing_cols:
+            print(f"Dropping columns with all missing values: {all_missing_cols}")
+            self.transformed_df = self.transformed_df.drop(columns=all_missing_cols)
 
 
     def save_output(self):
@@ -759,45 +815,49 @@ class SumStatsTransformer:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.qc_output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Filter out rows with "NA" in the standardized variant ID column for the standardized output
-        print(f"Number of SNPs that were unable to be standardized: {len(self.transformed_df[self.transformed_df[self.standardized_variant_id_key] == 'NA'])}")
-        standardized_df = self.transformed_df[self.transformed_df[self.standardized_variant_id_key] != "NA"]
-        print(f"Number of SNPs validated against dbSNP: {len(standardized_df[standardized_df[self.dbSNP_validation_key] == 'Validated'])}")
-
-        # Filter out rows that failed dbSNP lookup for the failed dbSNP output
-        annotated_df_failed_dbsnp = self.annotated_df[
-            self.annotated_df.index.isin(self.transformed_df.index) &
-            self.annotated_df.index.isin(standardized_df[standardized_df[self.dbSNP_validation_key] == "Failed dbSNP lookup"].index)
-        ]
-        print(f"Number of SNPs that failed dbSNP lookup: {len(annotated_df_failed_dbsnp)}")
-
-        # Filter out rows with mismatched alleles for the mismatched alleles output
-        annotated_df_mismatched = self.annotated_df[self.annotated_df[self.dbSNP_validation_key].isin(["Position Mismatch", "Allele Mismatch"])]
-        print(f"Number of SNPs with mismatched alleles: {len(annotated_df_mismatched)}")
-
         # Determine the base name for the output files based on the input file name, handling .gz suffix if present
         if self.sum_stats_fp.suffix == ".gz":
             input_file_base = Path(self.sum_stats_fp.stem).stem
         else:
             input_file_base = self.sum_stats_fp.stem
 
+        # Filter out rows with "NA" in the standardized variant ID column for the standardized output
+        print(f"Number of SNPs that were unable to be standardized: {len(self.transformed_df[self.transformed_df[self.standardized_variant_id_key] == 'NA'])}")
+        standardized_df = self.transformed_df[self.transformed_df[self.standardized_variant_id_key] != "NA"]
+
         # Save the standardized DataFrame to a TSV file if it contains any rows
         if len(standardized_df) > 0:
             standardized_fp = Path(f"{self.output_dir}/{input_file_base}.standardized.tsv")
             standardized_df.to_csv(standardized_fp, sep="\t", index=False)
             print(f"Saved standardized summary statistics to {standardized_fp}")
+        
+        if self.annotate_dbSNP:
+            
+            # Log the number of SNPs that were validated against dbSNP
+            print(f"Number of SNPs validated against dbSNP: {len(standardized_df[standardized_df[self.dbSNP_validation_key] == 'Validated'])}")
 
-        # Save the failed dbSNP DataFrame to a TSV file if it contains any rows
-        if len(annotated_df_failed_dbsnp) > 0:
-            failed_dbsnp_fp = Path(f"{self.qc_output_dir}/{input_file_base}.failed_dbsnp.tsv")
-            annotated_df_failed_dbsnp.to_csv(failed_dbsnp_fp, sep="\t", index=False)
-            print(f"Saved failed dbSNP annotations to {failed_dbsnp_fp}")
+            # Filter out rows that failed dbSNP lookup for the failed dbSNP output
+            annotated_df_failed_dbsnp = self.annotated_df[
+                self.annotated_df.index.isin(self.transformed_df.index) &
+                self.annotated_df.index.isin(standardized_df[standardized_df[self.dbSNP_validation_key] == "Failed dbSNP lookup"].index)
+            ]
+            print(f"Number of SNPs that failed dbSNP lookup: {len(annotated_df_failed_dbsnp)}")
 
-        # Save the mismatched alleles DataFrame to a TSV file if it contains any rows
-        if len(annotated_df_mismatched) > 0:
-            mismatched_alleles_fp = Path(f"{self.qc_output_dir}/{input_file_base}.mismatched_alleles.tsv")
-            annotated_df_mismatched.to_csv(mismatched_alleles_fp, sep="\t", index=False)
-            print(f"Saved mismatched alleles to {mismatched_alleles_fp}")
+            # Filter out rows with mismatched alleles for the mismatched alleles output
+            annotated_df_mismatched = self.annotated_df[self.annotated_df[self.dbSNP_validation_key].isin(["Position Mismatch", "Allele Mismatch"])]
+            print(f"Number of SNPs with mismatched alleles: {len(annotated_df_mismatched)}")
+
+            # Save the failed dbSNP DataFrame to a TSV file if it contains any rows
+            if len(annotated_df_failed_dbsnp) > 0:
+                failed_dbsnp_fp = Path(f"{self.qc_output_dir}/{input_file_base}.failed_dbsnp.tsv")
+                annotated_df_failed_dbsnp.to_csv(failed_dbsnp_fp, sep="\t", index=False)
+                print(f"Saved failed dbSNP annotations to {failed_dbsnp_fp}")
+
+            # Save the mismatched alleles DataFrame to a TSV file if it contains any rows
+            if len(annotated_df_mismatched) > 0:
+                mismatched_alleles_fp = Path(f"{self.qc_output_dir}/{input_file_base}.mismatched_alleles.tsv")
+                annotated_df_mismatched.to_csv(mismatched_alleles_fp, sep="\t", index=False)
+                print(f"Saved mismatched alleles to {mismatched_alleles_fp}")
 
 
     def run(self):
@@ -823,15 +883,16 @@ class SumStatsTransformer:
             print(f"Liftover complete. New shape: {self.ss_df.shape}")
 
         # Filter to locus regions, if loci file is provided and filtering is requested
-        if self.loci_df is not None and self.filter_by_loci:
+        if self.loci_df is not None and self.filter_loci:
             print("Filtering summary statistics to specified locus regions...")
-            self.filter_by_expanded_ranges()
+            self.filter_by_loci()
             print(f"Filtered summary stats shape: {self.ss_df.shape}")
 
         # Filter out SNPs with p-value > 0.99
-        print("Filtering out SNPs with p-value > 0.99...")
-        self.filter_by_p_value()
-        print(f"Filtered summary stats shape after p-value filtering: {self.ss_df.shape}")
+        if self.filter_p_value:
+            print("Filtering out SNPs with p-value > 0.99...")
+            self.filter_by_p_value()
+            print(f"Filtered summary stats shape after p-value filtering: {self.ss_df.shape}")
 
         # Annotate
         print("Annotating summary statistics...")
@@ -883,7 +944,8 @@ if __name__ == "__main__":
     parser.add_argument("--header_lines", type=int, default=0, help="Number of header lines to skip in the input file.")
     parser.add_argument("--entrez_email", type=str, required=True, help="Email address for NCBI Entrez API.")
     parser.add_argument("--annotate_dbSNP", action="store_true", default=False, help="Whether to annotate SNPs with dbSNP information. Default is False.")
-    parser.add_argument("--filter_by_loci", action="store_true", default=False, help="Whether to filter summary statistics by loci. Default is False.")
+    parser.add_argument("--filter_loci", action="store_true", default=False, help="Whether to filter summary statistics by loci. Default is False.")
+    parser.add_argument("--filter_p_value", action="store_true", default=False, help="Whether to filter summary statistics by p-value > 0.99. Default is True.")
     parser.add_argument("--ss_chr_key", type=str, required=True, help="Column name for chromosome.")
     parser.add_argument("--ss_pos_key", type=str, required=True, help="Column name for genomic position.")
     parser.add_argument("--ss_rsid_key", type=str, default=None, help="Column name for rsID (optional).")
@@ -894,28 +956,35 @@ if __name__ == "__main__":
     parser.add_argument("--ss_p_key", type=str, default=None, help="Column name for p-value (optional).")
     parser.add_argument("--ss_beta_key", type=str, default=None, help="Column name for beta coefficient (optional).")
     parser.add_argument("--ss_se_key", type=str, default=None, help="Column name for standard error (optional).")
-    parser.add_argument("--ss_n", type=int, required=True, help="Sample size.")
+    parser.add_argument("--ss_n_cases_key", type=str, default=None, help="Case sample size key.")
+    parser.add_argument("--ss_n_controls_key", type=str, default=None, help="Control sample size key.")
+    parser.add_argument("--ss_n_key", type=str, default=None, help="Total sample size key.")
+    parser.add_argument("--ss_n_cases", type=int, default=None, help="Case sample size (optional). Will be used to fill standardized_n_cases_key if ss_n_cases_key is not provided.")
+    parser.add_argument("--ss_n_controls", type=int, default=None, help="Control sample size (optional). Will be used to fill standardized_n_controls_key if ss_n_controls_key is not provided.")
+    parser.add_argument("--ss_n", type=int, default=None, help="Total sample size (optional). Will be used to fill standardized_n_key if ss_n_key or ss_n_controls_key and ss_n_cases_key are not provided.")
     parser.add_argument("--ss_statistic_key", type=str, default=None, help="Column name for test statistic (optional).")
-    parser.add_argument("--ss_maf_key", type=str, default=None, help="Column name for minor allele frequency (optional).")
-    parser.add_argument("--ss_mac_key", type=str, default=None, help="Column name for minor allele count (optional).")
+    parser.add_argument("--ss_eaf_key", type=str, default=None, help="Column name for effect allele frequency (optional).")
+    parser.add_argument("--ss_eac_key", type=str, default=None, help="Column name for effect allele count (optional).")
     parser.add_argument("--ss_var_beta_key", type=str, default=None, help="Column name for variance of beta (optional).")
     parser.add_argument("--ss_strata_key", type=str, default=None, help="Column name for strata label (optional). Ex. tissue, region, sex, etc.")
     parser.add_argument("--ss_strata_value", type=str, default=None, help="Value to fill strata column in standardized output (optional). Ex. 'Cortex' if strata is region.")
-    parser.add_argument("--ss_phenotype_id_key", type=str, default=None, help="Column name for phenytope id (optional). Relevant for sQTLs")
+    parser.add_argument("--ss_phenotype_id_key", type=str, default=None, help="Column name for phenotype id (optional). Relevant for sQTLs and pQTLs.")
     parser.add_argument("--standardized_chr_key", type=str, default="CHR", help="Standardized column name for chromosome (optional).")
     parser.add_argument("--standardized_pos_key", type=str, default="BP", help="Standardized column name for position (optional).")
     parser.add_argument("--standardized_rsid_key", type=str, default="SNP", help="Standardized column name for rsID (optional).")
     parser.add_argument("--standardized_variant_id_key", type=str, default="VAR", help="Standardized column name for variant ID (optional).")
-    parser.add_argument("--standardized_gene_id_key", type=str, default="GENE", help="Standardized column name for gene ID (optional).")
+    parser.add_argument("--standardized_gene_key", type=str, default="GENE", help="Standardized column name for gene ID (optional).")
     parser.add_argument("--standardized_phenotype_id_key", type=str, default="PHENOTYPE", help="Standardized column name for phenotype ID (optional).")
     parser.add_argument("--standardized_non_effect_allele_key", type=str, default="NON_EFFECT", help="Standardized column name for non-effect allele (optional).")
     parser.add_argument("--standardized_effect_allele_key", type=str, default="EFFECT", help="Standardized column name for effect allele (optional).")
     parser.add_argument("--standardized_p_key", type=str, default="P", help="Standardized column name for p-value (optional).")
     parser.add_argument("--standardized_beta_key", type=str, default="BETA", help="Standardized column name for beta coefficient (optional).")
     parser.add_argument("--standardized_se_key", type=str, default="SE", help="Standardized column name for standard error (optional).")
+    parser.add_argument("--standardized_n_cases_key", type=str, default="N_CASES", help="Standardized column name for case sample size (optional).")
+    parser.add_argument("--standardized_n_controls_key", type=str, default="N_CONTROLS", help="Standardized column name for control sample size (optional).")
     parser.add_argument("--standardized_n_key", type=str, default="N", help="Standardized column name for sample size (optional).")
     parser.add_argument("--standardized_statistic_key", type=str, default="STAT", help="Standardized column name for test statistic (optional).")
-    parser.add_argument("--standardized_maf_key", type=str, default="MAF", help="Standardized column name for minor allele frequency (optional).")
+    parser.add_argument("--standardized_eaf_key", type=str, default="EAF", help="Standardized column name for effect allele frequency (optional).")
     parser.add_argument("--standardized_var_beta_key", type=str, default="VARBETA", help="Standardized column name for variance of beta (optional).")
     parser.add_argument("--standardized_strata_key", type=str, default="STRATA", help="Standardized column name for strata label (optional).")
     parser.add_argument("--loci_left_bound_key", type=str, default="LEFT_500KB", help="Column name for left bound of loci (optional).")
