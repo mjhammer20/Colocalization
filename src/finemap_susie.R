@@ -592,7 +592,7 @@ Finemapper <- R6Class("Finemapper",
                         label_flipped <- paste0(label, "_flipped")
                         qc_result_flipped <- self$susie_qc(D_flipped, label_flipped)
                         s_rss_flipped <- qc_result_flipped[[1]]
-                        if (!is.null(s_rss_flipped) && s_rss_flipped < 0.1) {
+                        if (!is.null(s_rss_flipped) && s_rss_flipped < s_rss) {
                             qc_note <- "Allele flips or strand mismatches explain large s_rss -> flipping sign of flagged SNPs in analysis"
                             .log("  %s", qc_note)
                             D <- D_flipped
@@ -622,7 +622,7 @@ Finemapper <- R6Class("Finemapper",
                                 label_no_flagged <- paste0(label, "_no_flagged")
                                 qc_result <- self$susie_qc(D_no_flagged, label_no_flagged)
                                 s_rss_no_flagged <- qc_result[[1]]
-                                if (!is.null(s_rss_no_flagged) && s_rss_no_flagged < 0.1) {
+                                if (!is.null(s_rss_no_flagged) && s_rss_no_flagged < s_rss) {
                                     qc_note <- "Flagged SNPs explain large s_rss -> removing flagged SNPs from analysis"
                                     .log("  %s", qc_note)
                                     D <- D_no_flagged
@@ -822,6 +822,16 @@ Finemapper <- R6Class("Finemapper",
             # Count the number of variants in the locus and log the information
             n_variants = nrow(locus_ss)
             .log("  [%s] Variants in locus: %d", locus_label, n_variants)
+
+            # Filter out rare variants with EAF < 0.01 or EAF > 0.99, and log the number of SNPs removed
+            locus_ss <- locus_ss %>% filter(
+                .data[[locus_ss$standardized_eaf_key]] >= 0.01,
+                .data[[locus_ss$standardized_eaf_key]] <= 0.99
+            )
+
+            # Count the number of rare variants removed and log the information
+            n_variants_removed = n_variants - nrow(locus_ss)
+            .log("  [%s] Rare variants removed (EAF < 0.01 or EAF > 0.99): %d", locus_label, n_variants_removed)
 
             # Record the lead variant
             top_variant <- locus_ss %>% arrange(.data[[self$standardized_p_key]]) %>% slice(1)
