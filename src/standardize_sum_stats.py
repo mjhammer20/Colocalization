@@ -919,7 +919,8 @@ def main(args: argparse.Namespace) -> None:
 
     """
     # Initialize Entrez email (required by NCBI) for API access
-    Entrez.email = args.entrez_email
+    if args.entrez_email is not None:
+        Entrez.email = args.entrez_email
 
     # Log the annotate_dbSNP setting
     print(f"dbSNP annotation enabled: {args.annotate_dbSNP}", flush=True)
@@ -942,7 +943,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, required=True, help="Directory to save the output files.")
     parser.add_argument("--qc_output_dir", type=str, required=True, help="Directory to save the QC output files.")
     parser.add_argument("--header_lines", type=int, default=0, help="Number of header lines to skip in the input file.")
-    parser.add_argument("--entrez_email", type=str, required=True, help="Email address for NCBI Entrez API.")
+    parser.add_argument("--entrez_email", type=str, default=None, help="Email address for NCBI Entrez API.")
     parser.add_argument("--annotate_dbSNP", action="store_true", default=False, help="Whether to annotate SNPs with dbSNP information. Default is False.")
     parser.add_argument("--filter_loci", action="store_true", default=False, help="Whether to filter summary statistics by loci. Default is False.")
     parser.add_argument("--filter_p_value", action="store_true", default=False, help="Whether to filter summary statistics by p-value > 0.99. Default is True.")

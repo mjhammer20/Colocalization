@@ -1178,65 +1178,55 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
             if (!is.null(gwas_dataset) && isFALSE(gwas_dataset$too_few)) {
 
                 .log("  [%s] Passed initial checks for GWAS dataset", locus_gwas_label)
-    
-                # Skip SuSiE analysis if estimated s_rss is too high, indicating potential issues with the dataset. Log a message indicating that SuSiE is being skipped due to high s_rss.
-                if (!is.na(gwas_dataset$s_rss) && gwas_dataset$s_rss < 0.3){
 
-                    .log("  [%s] Passed rss threshold check for GWAS dataset (s_rss=%.3f)", locus_gwas_label, gwas_dataset$s_rss)
+                # Check for precomputed SuSiE fit file for the GWAS dataset and load it if it exists, otherwise run SuSiE analysis
+                gwas_susie_fp <- file.path(self$susie_results_dir, sprintf("%s_gwas_susie.rds", locus_gwas_label))
+                if (file.exists(gwas_susie_fp)) {
+                    .log("[%s] Loading precomputed SuSiE fit for GWAS from %s", locus_gwas_label, gwas_susie_fp)
+                    gwas_susie_result <- readRDS(gwas_susie_fp)
+                    gwas_susie_fit <- gwas_susie_result$fit
+                    n_gwas_signals_susie <- tryCatch(length(gwas_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
+                    .log("  [%s] Precomputed SuSiE fit for GWAS credible sets: %d", locus_gwas_label, n_gwas_signals_susie)
+                    ran_susie_gwas <- TRUE
+                    ran_susie_gwas_status <- "Loaded precomputed"
+                } else {
+                    # Run SuSiE for GWAS dataset
+                    if (!is.null(gwas_dataset$D)) {
+                        .log("[%s] Running SuSiE for GWAS...", locus_gwas_label)
+                        gwas_susie_result <- self$safe_runsusie(
+                            D = gwas_dataset$D,
+                            label = locus_gwas_label
+                        )
 
-                    # Check for precomputed SuSiE fit file for the GWAS dataset and load it if it exists, otherwise run SuSiE analysis
-                    gwas_susie_fp <- file.path(self$susie_results_dir, sprintf("%s_gwas_susie.rds", locus_gwas_label))
-                    if (file.exists(gwas_susie_fp)) {
-                        .log("[%s] Loading precomputed SuSiE fit for GWAS from %s", locus_gwas_label, gwas_susie_fp)
-                        gwas_susie_result <- readRDS(gwas_susie_fp)
+                        # Extract the SuSiE fit and status from the result
                         gwas_susie_fit <- gwas_susie_result$fit
-                        n_gwas_signals_susie <- tryCatch(length(gwas_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
-                        .log("  [%s] Precomputed SuSiE fit for GWAS credible sets: %d", locus_gwas_label, n_gwas_signals_susie)
-                        ran_susie_gwas <- TRUE
-                        ran_susie_gwas_status <- "Loaded precomputed"
-                    } else {
-                        # Run SuSiE for GWAS dataset
-                        if (!is.null(gwas_dataset$D)) {
-                            .log("[%s] Running SuSiE for GWAS...", locus_gwas_label)
-                            gwas_susie_result <- self$safe_runsusie(
+                        ran_susie_gwas_status <- gwas_susie_result$reason
+
+                        # Only attempt fallback if we didn't get a "check_dataset failed" sentinel (indicating LD check failure)
+                        if (is.null(gwas_susie_fit) && !identical(ran_susie_gwas_status, "check_dataset failed")) {
+                            # Attempt fallback only if safe_runsusie returned NULL (not "check_dataset failed")
+                            gwas_susie_fallback_result <- self$run_susie_fallback(
                                 D = gwas_dataset$D,
                                 label = locus_gwas_label
                             )
-
-                            # Extract the SuSiE fit and status from the result
-                            gwas_susie_fit <- gwas_susie_result$fit
-                            ran_susie_gwas_status <- gwas_susie_result$reason
-
-                            # Only attempt fallback if we didn't get a "check_dataset failed" sentinel (indicating LD check failure)
-                            if (is.null(gwas_susie_fit) && !identical(ran_susie_gwas_status, "check_dataset failed")) {
-                                # Attempt fallback only if safe_runsusie returned NULL (not "check_dataset failed")
-                                gwas_susie_fallback_result <- self$run_susie_fallback(
-                                    D = gwas_dataset$D,
-                                    label = locus_gwas_label
-                                )
-                                # Extract the SuSiE fit and status from the fallback result
-                                gwas_susie_fit <- gwas_susie_fallback_result$fit
-                                ran_susie_gwas_status <- gwas_susie_fallback_result$reason
-                            }
-                            n_gwas_signals_susie <- tryCatch(length(gwas_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
+                            # Extract the SuSiE fit and status from the fallback result
+                            gwas_susie_fit <- gwas_susie_fallback_result$fit
+                            ran_susie_gwas_status <- gwas_susie_fallback_result$reason
                         }
+                        n_gwas_signals_susie <- tryCatch(length(gwas_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
+                    }
 
-                        # Save GWAS SuSiE fit and set ran_susie_gwas flag to TRUE
-                        if (!is.null(gwas_susie_fit)) {
-                            .log("[%s] Saving SuSiE fit for GWAS to %s", locus_gwas_label, gwas_susie_fp)
-                            saveRDS(list(fit = gwas_susie_fit, reason = ran_susie_gwas_status), gwas_susie_fp)
-                            ran_susie_gwas <- TRUE
-                            ran_susie_gwas_status <- "Succeeded and saved"
-                        } else {
-                            if (is.null(ran_susie_gwas_status)) {
-                                ran_susie_gwas_status <- "Failed, check log for details"
-                            }
+                    # Save GWAS SuSiE fit and set ran_susie_gwas flag to TRUE
+                    if (!is.null(gwas_susie_fit)) {
+                        .log("[%s] Saving SuSiE fit for GWAS to %s", locus_gwas_label, gwas_susie_fp)
+                        saveRDS(list(fit = gwas_susie_fit, reason = ran_susie_gwas_status), gwas_susie_fp)
+                        ran_susie_gwas <- TRUE
+                        ran_susie_gwas_status <- "Succeeded and saved"
+                    } else {
+                        if (is.null(ran_susie_gwas_status)) {
+                            ran_susie_gwas_status <- "Failed, check log for details"
                         }
                     }
-                } else {
-                    .log("[%s] Skipping SuSiE for GWAS due to unreliable LD: estimated s_rss=%.3f > 0.3", locus_gwas_label, gwas_dataset$s_rss)
-                    ran_susie_gwas_status <- sprintf("Skipped due to unreliable LD: estimated s_rss=%.3f > 0.3", gwas_dataset$s_rss)
-                    
                 }
             } else {
                 .log("[%s] Skipping SuSiE for GWAS due to too few variants: n_variants=%d < min_variants=%d", locus_gwas_label, n_gwas_ld, self$susie_min_snps)
@@ -1339,65 +1329,55 @@ ColocalizationAnalyzer <- R6Class("ColocalizationAnalyzer",
                 if (!is.null(gene_qtl_dataset) && isFALSE(gene_qtl_dataset$too_few)) {
 
                     .log("  [%s] Passed initial checks for Gene QTL dataset", gene_qtl_label)
- 
-                    # Skip SuSiE analysis if estimated s_rss is too high, indicating potential issues with the dataset. Log a message indicating that SuSiE is being skipped due to high s_rss.
-                    if (!is.na(gene_qtl_dataset$s_rss) && gene_qtl_dataset$s_rss < 0.3) {
 
-                        .log("  [%s] Passed rss threshold check for Gene QTL dataset (s_rss=%.3f)", gene_qtl_label, gene_qtl_dataset$s_rss)
+                    # Check for precomputed SuSiE fit file for the QTL dataset and load it if it exists, otherwise run SuSiE analysis
+                    qtl_susie_fp <- file.path(self$susie_results_dir, sprintf("%s_qtl_susie.rds", gene_qtl_label))
+                    if (file.exists(qtl_susie_fp)) {
+                        .log("[%s] Loading precomputed SuSiE fit for QTL from %s", gene_qtl_label, qtl_susie_fp)
+                        qtl_susie_result <- readRDS(qtl_susie_fp)
+                        qtl_susie_fit <- qtl_susie_result$fit
+                        n_qtl_signals_susie <- tryCatch(length(qtl_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
+                        .log("  [%s] Precomputed SuSiE fit for QTL credible sets: %d", gene_qtl_label, n_qtl_signals_susie)
+                        ran_susie_qtl <- TRUE
+                        ran_susie_qtl_status <- "Loaded precomputed"
+                    } else {
+                        # Run SuSiE for QTL dataset
+                        if (!is.null(gene_qtl_dataset$D)) {
+                            .log("[%s] Running SuSiE for QTL...", gene_qtl_label)
+                            qtl_susie_result <- self$safe_runsusie(
+                                D = gene_qtl_dataset$D,
+                                label = gene_qtl_label
+                            )
 
-                        # Check for precomputed SuSiE fit file for the QTL dataset and load it if it exists, otherwise run SuSiE analysis
-                        qtl_susie_fp <- file.path(self$susie_results_dir, sprintf("%s_qtl_susie.rds", gene_qtl_label))
-                        if (file.exists(qtl_susie_fp)) {
-                            .log("[%s] Loading precomputed SuSiE fit for QTL from %s", gene_qtl_label, qtl_susie_fp)
-                            qtl_susie_result <- readRDS(qtl_susie_fp)
+                            # Extract the SuSiE fit and status from the result
                             qtl_susie_fit <- qtl_susie_result$fit
-                            n_qtl_signals_susie <- tryCatch(length(qtl_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
-                            .log("  [%s] Precomputed SuSiE fit for QTL credible sets: %d", gene_qtl_label, n_qtl_signals_susie)
-                            ran_susie_qtl <- TRUE
-                            ran_susie_qtl_status <- "Loaded precomputed"
-                        } else {
-                            # Run SuSiE for QTL dataset
-                            if (!is.null(gene_qtl_dataset$D)) {
-                                .log("[%s] Running SuSiE for QTL...", gene_qtl_label)
-                                qtl_susie_result <- self$safe_runsusie(
+                            ran_susie_qtl_status <- qtl_susie_result$reason
+
+                            # Only attempt fallback if we didn't get a "check_dataset failed" sentinel (indicating LD check failure)
+                            if (is.null(qtl_susie_fit) && !identical(ran_susie_qtl_status, "check_dataset failed")) {
+                                # Attempt fallback only if safe_runsusie returned NULL (not "check_dataset failed")
+                                qtl_susie_fallback_result <- self$run_susie_fallback(
                                     D = gene_qtl_dataset$D,
                                     label = gene_qtl_label
                                 )
-
-                                # Extract the SuSiE fit and status from the result
-                                qtl_susie_fit <- qtl_susie_result$fit
-                                ran_susie_qtl_status <- qtl_susie_result$reason
-
-                                # Only attempt fallback if we didn't get a "check_dataset failed" sentinel (indicating LD check failure)
-                                if (is.null(qtl_susie_fit) && !identical(ran_susie_qtl_status, "check_dataset failed")) {
-                                    # Attempt fallback only if safe_runsusie returned NULL (not "check_dataset failed")
-                                    qtl_susie_fallback_result <- self$run_susie_fallback(
-                                        D = gene_qtl_dataset$D,
-                                        label = gene_qtl_label
-                                    )
-                                    # Extract the SuSiE fit and status from the fallback result
-                                    qtl_susie_fit <- qtl_susie_fallback_result$fit
-                                    ran_susie_qtl_status <- qtl_susie_fallback_result$reason
-                                }
-                                n_qtl_signals_susie <- tryCatch(length(qtl_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
+                                # Extract the SuSiE fit and status from the fallback result
+                                qtl_susie_fit <- qtl_susie_fallback_result$fit
+                                ran_susie_qtl_status <- qtl_susie_fallback_result$reason
                             }
+                            n_qtl_signals_susie <- tryCatch(length(qtl_susie_fit$sets$cs), error = function(e) 0L) %||% 0L
+                        }
 
-                            # Save QTL SuSiE fit and set ran_susie_qtl flag to TRUE
-                            if (!is.null(qtl_susie_fit)) {
-                                .log("[%s] Saving SuSiE fit for QTL to %s", gene_qtl_label, qtl_susie_fp)
-                                saveRDS(list(fit = qtl_susie_fit, reason = ran_susie_qtl_status), qtl_susie_fp)
-                                ran_susie_qtl <- TRUE
-                                ran_susie_qtl_status <- "Succeeded and saved"
-                            } else {
-                                if (is.null(ran_susie_qtl_status)) {
-                                    ran_susie_qtl_status <- "Failed, check log for details"
-                                }
+                        # Save QTL SuSiE fit and set ran_susie_qtl flag to TRUE
+                        if (!is.null(qtl_susie_fit)) {
+                            .log("[%s] Saving SuSiE fit for QTL to %s", gene_qtl_label, qtl_susie_fp)
+                            saveRDS(list(fit = qtl_susie_fit, reason = ran_susie_qtl_status), qtl_susie_fp)
+                            ran_susie_qtl <- TRUE
+                            ran_susie_qtl_status <- "Succeeded and saved"
+                        } else {
+                            if (is.null(ran_susie_qtl_status)) {
+                                ran_susie_qtl_status <- "Failed, check log for details"
                             }
                         }
-                    } else {
-                        .log("[%s] Skipping SuSiE for QTL due to unreliable LD: estimated s_rss=%.3f > 0.3", gene_qtl_label, qtl_dataset$s_rss)
-                        ran_susie_qtl_status <- sprintf("Skipped due to unreliable LD: estimated s_rss=%.3f > 0.3", qtl_dataset$s_rss)
-
                     }
                 } else {
                     .log("[%s] Skipping SuSiE for QTL due to too few variants: n_variants=%d < min_variants=%d", gene_qtl_label, n_gene_qtl_ld, self$susie_min_snps)

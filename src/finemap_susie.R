@@ -213,6 +213,47 @@ suppressPackageStartupMessages({
     return(ld)
 }
 
+.reconcile_ld_ids = function(ld, D0) {
+
+    # Renames LD variants whose ID is not in the summary stats but which match a summary stats variant by position and allele set (in either orientation, e.g. LD A1/A2 = EA/OA instead of OA/EA).
+    # Only the IDs are changed here. The sign flip is handled afterwards by .align_ld, which compares the target allele to the LD A1/A2 (kept as-is), so the sign must NOT be flipped again here.
+
+    # Args:
+    #     ld: A list containing the LD matrix and allele information (output from .read_ld).
+    #     D0: A data frame of summary stats with columns snp, EA, OA, POS.
+
+    # Returns:
+    #     The ld list with matching variant IDs renamed to the summary stats IDs.
+
+    if (is.null(ld)) return(NULL)
+
+    ld_ids <- rownames(ld$M)
+    unmatched <- which(!ld_ids %in% D0$snp)
+    if (length(unmatched) == 0) return(ld)
+
+    # Order-independent key: position + sorted allele pair
+    make_key <- function(pos, x, y) paste(as.integer(pos), pmin(toupper(x), toupper(y)), pmax(toupper(x), toupper(y)), sep = ":")
+    ss_key <- make_key(D0$POS, D0$EA, D0$OA)
+    ld_key <- make_key(ld$POS[unmatched], ld$A1[unmatched], ld$A2[unmatched])
+
+    # Only use summary stats keys that are unambiguous (one variant per position + allele pair)
+    ss_unique <- !(duplicated(ss_key) | duplicated(ss_key, fromLast = TRUE))
+    new_ids <- D0$snp[ss_unique][match(ld_key, ss_key[ss_unique])]
+
+    # Avoid collisions with existing LD IDs or duplicate targets
+    ok <- !is.na(new_ids) & !(new_ids %in% ld_ids) & !duplicated(new_ids)
+    if (!any(ok)) return(ld)
+
+    ld_ids[unmatched[ok]] <- new_ids[ok]
+    dimnames(ld$M) <- list(ld_ids, ld_ids)
+    names(ld$A1) <- ld_ids
+    names(ld$A2) <- ld_ids
+    names(ld$POS) <- ld_ids
+    .log("    Resolved allele encoding for %d LD variant IDs to match summary stats by position + alleles", sum(ok))
+
+    return(ld)
+}
+
 .align_ld = function(ld, snps, target_allele) {
     
     # Aligns the LD matrix to a target allele for each variant, subsets it to the specified SNPs, and returns the aligned LD matrix.
@@ -506,6 +547,9 @@ Finemapper <- R6Class("Finemapper",
             
             # Check if there are fewer than 2 SNPs in the dataset and return NULL if so
             if (nrow(D0) < 2) return(NULL)
+
+            # Rename LD variants that match a summary stats variant by position + alleles but have a different ID
+            ld <- .reconcile_ld_ids(ld, D0)
 
             # Align the LD matrix to the effect allele and subset it to the SNPs in D0
             if (target_allele_key == self$standardized_effect_allele_key) {
